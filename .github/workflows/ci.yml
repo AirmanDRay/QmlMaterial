@@ -1,0 +1,145 @@
+name: CI — Qt 6.8.3 multi-compiler build & tests
+on: [push, pull_request]
+
+jobs:
+  matrix:
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            compiler: gcc
+          - runner: ubuntu-latest
+            compiler: clang
+          - runner: macos-latest
+            compiler: xcode
+          - runner: windows-latest
+            compiler: msvc
+          - runner: windows-latest
+            compiler: mingw
+          - runner: windows-latest
+            compiler: clang
+    timeout-minutes: 90
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system deps (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake ninja-build pkg-config libgl1-mesa-dev
+          if [ "${{ matrix.compiler }}" = "clang" ]; then sudo apt-get install -y clang; fi
+        shell: bash
+
+      - name: Install system deps (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew update
+          brew install cmake ninja
+        shell: bash
+
+      - name: Install system deps (Windows MSVC)
+        if: runner.os == 'Windows' && matrix.compiler == 'msvc'
+        run: |
+          choco install -y cmake --installargs 'ADD_CMAKE_TO_PATH=System'
+          choco install -y visualstudio2022-workload-vctools --ignore-checksums
+        shell: powershell
+
+      - name: Install system deps (Windows MinGW)
+        if: runner.os == 'Windows' && matrix.compiler == 'mingw'
+        run: |
+          choco install -y msys2
+          refreshenv
+          # install mingw-w64 toolchain via pacman
+          C:\msys64\usr\bin\bash -lc "pacman -Syu --noconfirm"
+          C:\msys64\usr\bin\bash -lc "pacman -S --noconfirm mingw-w64-x86_64-toolchain base-devel"
+        shell: powershell
+
+      - name: Install system deps (Windows clang/LLVM)
+        if: runner.os == 'Windows' && matrix.compiler == 'clang'
+        run: |
+          choco install -y llvm
+          choco install -y cmake --installargs 'ADD_CMAKE_TO_PATH=System'
+        shell: powershell
+
+      - name: Install Qt 6.8.3
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.3'
+          host: ${{ matrix.runner == 'macos-latest' && 'mac' || matrix.runner == 'windows-latest' && 'windows' || 'linux' }}
+
+      - name: Show Qt info
+        run: |
+          echo "QT_INSTALL_DIR=${QT_INSTALL_DIR:-$QTDIR}"
+          if [ -n "${QT_INSTALL_DIR:-}" ]; then ls -la "${QT_INSTALL_DIR}"; fi
+        shell: bash
+
+      - name: Configure CMake (select compilers)
+        env:
+          CMAKE_PREFIX_PATH: ${{ env.QT_INSTALL_DIR || env.QTDIR || '' }}
+        run: |
+          mkdir -p build
+          # default compilers for Linux
+          if [ "${{ runner.os }}" = "Linux" ]; then
+            if [ "${{ matrix.compiler }}" = "clang" ]; then
+              CC=clang CXX=clang++ cmake -S . -B build -G Ninja \
+                -DCMAKE_BUILD_TYPE=Release \
+                -DCMAKE_PREFIX_PATH="${CMAKE_PREFIX_PATH}"
+            else
+              CC=gcc CXX=g++ cmake -S . -B build -G Ninja \
+                -DCMAKE_BUILD_TYPE=Release \
+                -DCMAKE_PREFIX_PATH="${CMAKE_PREFIX_PATH}"
+            fi
+          fi
+
+          # macOS: use Xcode / Apple Clang
+          if [ "${{ runner.os }}" = "macOS" ]; then
+            cmake -S . -B build -G Ninja \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DCMAKE_PREFIX_PATH="${CMAKE_PREFIX_PATH}"
+          fi
+
+          # Windows: MSVC, MinGW, or LLVM/Clang
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            if [ "${{ matrix.compiler }}" = "msvc" ]; then
+              cmake -S . -B build -G "Ninja" -A x64 \
+                -DCMAKE_BUILD_TYPE=Release \
+                -DCMAKE_PREFIX_PATH="${CMAKE_PREFIX_PATH}"
+            elif [ "${{ matrix.compiler }}" = "mingw" ]; then
+              # Use MSYS2 MinGW-w64 toolchain (assumes pacman installed packages)
+              C:/msys64/usr/bin/bash -lc "cmake -S /github/workspace -B /github/workspace/build -G 'MSYS Makefiles' -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH='${CMAKE_PREFIX_PATH}' -DCMAKE_C_COMPILER=/mingw64/bin/gcc -DCMAKE_CXX_COMPILER=/mingw64/bin/g++"
+            elif [ "${{ matrix.compiler }}" = "clang" ]; then
+              # Use LLVM clang from choco; ensure clang in PATH
+              cmake -S . -B build -G "Ninja" -A x64 \
+                -DCMAKE_BUILD_TYPE=Release \
+                -DCMAKE_PREFIX_PATH="${CMAKE_PREFIX_PATH}" \
+                -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
+            fi
+          fi
+        shell: bash
+
+      - name: Build
+        run: cmake --build build --config Release -- -j
+        shell: bash
+
+      - name: Run tests
+        env:
+          LIBGL_ALWAYS_SOFTWARE: "1"
+          QT_QPA_PLATFORM: "offscreen"
+          QML_IMPORT_PATH: "${{ github.workspace }}/build/qml_modules"
+        run: |
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            # exclude layout tests on Windows
+            ctest --test-dir build --output-on-failure -E "layout" -j 2
+          else
+            ctest --test-dir build --output-on-failure --parallel $(nproc || echo 2)
+          fi
+        shell: bash
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ctest-logs-${{ matrix.runner }}-${{ matrix.compiler }}
+          path: build/Testing

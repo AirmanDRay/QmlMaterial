@@ -246,7 +246,7 @@ jobs:
           QML_IMPORT_PATH: "${{ github.workspace }}/build/qml_modules"
         run: |
           if [ "${{ runner.os }}" = "Windows" ]; then
-            ctest --test-dir build --output-on-failure -E "layout" -j 2
+            ctest --test-dir build --output-on-failure -E "visual_" -j 2
           else
             ctest --test-dir build --output-on-failure --parallel $(nproc || echo 2)
           fi

@@ -175,19 +175,25 @@ jobs:
 
       - name: Configure CMake (Windows MinGW)
         if: runner.os == 'Windows' && matrix.compiler == 'mingw'
-        shell: 'C:\msys64\usr\bin\bash.exe -lc "{0}"'
         env:
           CMAKE_PREFIX_PATH: ${{ env.QTDIR || env.QT_INSTALL_DIR || '' }}
         run: |
-          set -e
-          export PATH=/mingw64/bin:/usr/bin:$PATH
-          pacman -Syu --noconfirm || true
-          WORKSPACE=$(cygpath -u '${{ github.workspace }}')
-          cmake -S "$WORKSPACE" -B "$WORKSPACE/build" -G 'MSYS Makefiles' \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_PREFIX_PATH="$CMAKE_PREFIX_PATH" \
-            -DCMAKE_C_COMPILER=/mingw64/bin/gcc.exe \
-            -DCMAKE_CXX_COMPILER=/mingw64/bin/g++.exe
+          # Run the configure inside MSYS2 bash; convert the Windows workspace path to POSIX with cygpath
+          C:/msys64/usr/bin/bash -lc "
+            set -e
+            export PATH=/mingw64/bin:/usr/bin:\$PATH
+            # Ensure pacman packages are present (safe no-op if already installed)
+            pacman -Syu --noconfirm || true
+            SRC=\$(cygpath -u '${{ github.workspace }}')
+            BUILD_DIR=\"\$SRC/build\"
+            mkdir -p \"\$BUILD_DIR\"
+            cmake -S \"\$SRC\" -B \"\$BUILD_DIR\" -G 'MSYS Makefiles' \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DCMAKE_PREFIX_PATH='${CMAKE_PREFIX_PATH}' \
+              -DCMAKE_C_COMPILER=/mingw64/bin/gcc.exe \
+              -DCMAKE_CXX_COMPILER=/mingw64/bin/g++.exe
+          "
+        shell: powershell
 
       - name: Configure CMake (Windows clang)
         if: runner.os == 'Windows' && matrix.compiler == 'clang'
@@ -244,12 +250,15 @@ jobs:
 
       - name: Build (Windows MinGW)
         if: runner.os == 'Windows' && matrix.compiler == 'mingw'
-        shell: 'C:\msys64\usr\bin\bash.exe -lc "{0}"'
         run: |
+          # Build inside MSYS2 bash so /mingw64/bin is used and nproc works
+          C:/msys64/usr/bin/bash -lc "
             set -e
-            export PATH=/mingw64/bin:/usr/bin:$PATH
-            WORKSPACE=$(cygpath -u '${{ github.workspace }}')
-            cmake --build "$WORKSPACE/build" --config Release --parallel $(nproc)
+            export PATH=/mingw64/bin:/usr/bin:\$PATH
+            SRC=\$(cygpath -u '${{ github.workspace }}')
+            cmake --build \"\$SRC/build\" --config Release -- -j\$(nproc || echo 2)
+          "
+        shell: powershell
 
       - name: Build (Windows, parallel)
         if: runner.os == 'Windows' && matrix.compiler != 'mingw'

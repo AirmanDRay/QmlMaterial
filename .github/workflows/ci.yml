@@ -49,21 +49,15 @@ jobs:
           choco install -y pkgconfiglite
         shell: powershell
 
-      - name: Install MinGW Qt and toolchain (MSYS2)
+      - name: Install MinGW Qt (MSYS2)
         if: runner.os == 'Windows' && matrix.compiler == 'mingw'
         run: |
             C:/msys64/usr/bin/bash -lc "
             set -e
-            # Ensure pacman DB is up-to-date
             pacman -Syu --noconfirm || true
-
-            # Install MinGW toolchain and Qt packages for MinGW
-            pacman -S --noconfirm mingw-w64-x86_64-toolchain base-devel \
-                mingw-w64-x86_64-cmake mingw-w64-x86_64-qt6 mingw-w64-x86_64-qt6-tools \
-                mingw-w64-x86_64-qt6-qtbase mingw-w64-x86_64-qt6-qtdeclarative mingw-w64-x86_64-qt6-qtquickcontrols2
-
-            # Verify Qt6 CMake files exist
-            ls -la /mingw64/lib/cmake/Qt6 || true
+            pacman -S --noconfirm --needed mingw-w64-x86_64-toolchain base-devel mingw-w64-x86_64-cmake \
+                mingw-w64-x86_64-qt6-base mingw-w64-x86_64-qt6-declarative mingw-w64-x86_64-qt6-qtquickcontrols2 \
+                mingw-w64-x86_64-qt6-shadertools mingw-w64-x86_64-qt6-tools
             "
         shell: powershell
 
@@ -181,19 +175,16 @@ jobs:
           cmd /c "`"$vsDevCmd`" -arch=amd64 && $cmakeCmd"
         shell: powershell
 
-      - name: Configure CMake (Windows MinGW, MSYS2)
+      - name: Configure CMake (Windows MinGW)
         if: runner.os == 'Windows' && matrix.compiler == 'mingw'
         run: |
             C:/msys64/usr/bin/bash -lc "
             set -e
             export PATH=/mingw64/bin:/usr/bin:\$PATH
-
             SRC=\$(cygpath -u '${{ github.workspace }}')
-            BUILD_DIR=\"\$SRC/build\"
-            mkdir -p \"\$BUILD_DIR\"
-
-            # Force CMake to use the MinGW Qt installed under /mingw64
-            cmake -S \"\$SRC\" -B \"\$BUILD_DIR\" -G 'MinGW Makefiles' \
+            rm -rf \"\$SRC/build\"
+            mkdir -p \"\$SRC/build\"
+            cmake -S \"\$SRC\" -B \"\$SRC/build\" -G 'MinGW Makefiles' \
                 -DCMAKE_BUILD_TYPE=Release \
                 -DCMAKE_PREFIX_PATH=/mingw64 \
                 -DQt6_DIR=/mingw64/lib/cmake/Qt6 \

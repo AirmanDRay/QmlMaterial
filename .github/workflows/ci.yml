@@ -12,7 +12,7 @@ jobs:
             compiler: gcc
           - runner: ubuntu-latest
             compiler: clang
-          - runner: macos-latest
+          - runner: macos-14 # not macos-latest because QTBUG-137687
             compiler: xcode
           - runner: windows-latest
             compiler: msvc

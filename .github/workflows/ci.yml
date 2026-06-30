@@ -74,6 +74,7 @@ jobs:
         with:
           version: '6.8.3'
           host: ${{ matrix.runner == 'macos-latest' && 'mac' || matrix.runner == 'windows-latest' && 'windows' || 'linux' }}
+          arch: ${{ matrix.compiler == 'mingw' && 'win64_mingw' || '' }}
           modules: 'qtshadertools'
 
       - name: Show Qt info (debug)
@@ -175,7 +176,7 @@ jobs:
 
       - name: Configure CMake (Windows MinGW)
         if: runner.os == 'Windows' && matrix.compiler == 'mingw'
-        shell: 'C:\msys64\usr\bin\bash.exe -lc "{0}"'
+        shell: 'C:\msys64\usr\bin\bash.exe -l "{0}"'
         env:
           CMAKE_PREFIX_PATH: ${{ env.QTDIR || env.QT_INSTALL_DIR || '' }}
         run: |
@@ -244,7 +245,7 @@ jobs:
 
       - name: Build (Windows MinGW)
         if: runner.os == 'Windows' && matrix.compiler == 'mingw'
-        shell: 'C:\msys64\usr\bin\bash.exe -lc "{0}"'
+        shell: 'C:\msys64\usr\bin\bash.exe -l "{0}"'
         run: |
             set -e
             export PATH=/mingw64/bin:/usr/bin:$PATH

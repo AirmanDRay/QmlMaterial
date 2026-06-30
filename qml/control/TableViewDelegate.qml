@@ -3,7 +3,15 @@ import QtQuick
 import QtQuick.Templates as T
 import Qcm.Material as MD
 
-T.TableViewDelegate {
+// Qt 6.8 compatibility note:
+// TableViewDelegate was only added in Qt 6.10. T.ItemDelegate is the
+// equivalent base available since Qt 6.8. Plain TableView (unlike
+// HorizontalHeaderView) has supported `required property bool selected
+// / current / editing` since Qt 6.2 — if a delegate declares them,
+// TableView keeps them in sync automatically regardless of the
+// delegate's base class — so selection still works correctly here,
+// unlike the header delegate where this trick isn't available.
+T.ItemDelegate {
     id: control
 
     implicitWidth: Math.max(implicitBackgroundWidth + leftInset + rightInset, implicitContentWidth + leftPadding + rightPadding)
@@ -17,6 +25,13 @@ T.TableViewDelegate {
     required property int column
     required property int row
     required property var model
+    required property bool selected
+    required property bool current
+    required property bool editing
+    // T.TableViewDelegate also exposed this as a built-in property
+    // pointing back to the enclosing view; recovered the same way as
+    // in HorizontalHeaderViewDelegate.qml.
+    readonly property T.TableView tableView: TableView.view as T.TableView
     readonly property bool rowHovered: hovered || ((TableView.view as MD.TableView)?.hoveredRow ?? -1) === row
     property int rows: TableView.view?.rows ?? 0
     property int columns: TableView.view?.columns ?? 0
@@ -25,9 +40,7 @@ T.TableViewDelegate {
         item: control
     }
     property int radius: mdTableView?.effectiveRadius ?? 0
-    property MD.corners corners: mdTableView?.hasHeader
-                                 ? MD.Util.tableWithHeaderCorners(row, column, rows, columns, radius)
-                                 : MD.Util.tableCorners(row, column, rows, columns, radius)
+    property MD.corners corners: mdTableView?.hasHeader ? MD.Util.tableWithHeaderCorners(row, column, rows, columns, radius) : MD.Util.tableCorners(row, column, rows, columns, radius)
 
     highlighted: selected
 

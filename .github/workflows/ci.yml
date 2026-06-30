@@ -51,7 +51,6 @@ jobs:
         run: |
           choco install -y msys2
           refreshenv
-          # install mingw-w64 toolchain via pacman
           C:\msys64\usr\bin\bash -lc "pacman -Syu --noconfirm"
           C:\msys64\usr\bin\bash -lc "pacman -S --noconfirm mingw-w64-x86_64-toolchain base-devel"
         shell: powershell
@@ -63,24 +62,26 @@ jobs:
           choco install -y cmake --installargs 'ADD_CMAKE_TO_PATH=System'
         shell: powershell
 
-      - name: Install Qt 6.8.3
-        uses: jurplel/install-qt-action@v4
+      - name: Install Qt 6.8.3 (with required modules)
+        uses: qt-actions/setup-qt@v2
         with:
           version: '6.8.3'
           host: ${{ matrix.runner == 'macos-latest' && 'mac' || matrix.runner == 'windows-latest' && 'windows' || 'linux' }}
+          modules: qtbase,qtdeclarative,qtquick,qtquickcontrols2,qtgui,qttools,shadertools
 
-      - name: Show Qt info
+      - name: Debug Qt install (list cmake packages)
         run: |
-          echo "QT_INSTALL_DIR=${QT_INSTALL_DIR:-$QTDIR}"
-          if [ -n "${QT_INSTALL_DIR:-}" ]; then ls -la "${QT_INSTALL_DIR}"; fi
+          echo "QTDIR=${QTDIR:-$QT_INSTALL_DIR}"
+          ls -la "${QTDIR:-$QT_INSTALL_DIR}/lib/cmake" || true
+          ls -la "${QTDIR:-$QT_INSTALL_DIR}/lib/cmake/Qt6ShaderTools" || true
         shell: bash
 
-      - name: Configure CMake (select compilers)
+      - name: Configure CMake (Linux / macOS)
+        if: runner.os != 'Windows'
         env:
-          CMAKE_PREFIX_PATH: ${{ env.QT_INSTALL_DIR || env.QTDIR || '' }}
+          CMAKE_PREFIX_PATH: ${{ env.QTDIR || env.QT_INSTALL_DIR || '' }}
         run: |
           mkdir -p build
-          # default compilers for Linux
           if [ "${{ runner.os }}" = "Linux" ]; then
             if [ "${{ matrix.compiler }}" = "clang" ]; then
               CC=clang CXX=clang++ cmake -S . -B build -G Ninja \
@@ -91,33 +92,45 @@ jobs:
                 -DCMAKE_BUILD_TYPE=Release \
                 -DCMAKE_PREFIX_PATH="${CMAKE_PREFIX_PATH}"
             fi
-          fi
-
-          # macOS: use Xcode / Apple Clang
-          if [ "${{ runner.os }}" = "macOS" ]; then
+          else
+            # macOS (Xcode / Apple Clang)
             cmake -S . -B build -G Ninja \
               -DCMAKE_BUILD_TYPE=Release \
               -DCMAKE_PREFIX_PATH="${CMAKE_PREFIX_PATH}"
           fi
-
-          # Windows: MSVC, MinGW, or LLVM/Clang
-          if [ "${{ runner.os }}" = "Windows" ]; then
-            if [ "${{ matrix.compiler }}" = "msvc" ]; then
-              cmake -S . -B build -G "Ninja" -A x64 \
-                -DCMAKE_BUILD_TYPE=Release \
-                -DCMAKE_PREFIX_PATH="${CMAKE_PREFIX_PATH}"
-            elif [ "${{ matrix.compiler }}" = "mingw" ]; then
-              # Use MSYS2 MinGW-w64 toolchain (assumes pacman installed packages)
-              C:/msys64/usr/bin/bash -lc "cmake -S /github/workspace -B /github/workspace/build -G 'MSYS Makefiles' -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH='${CMAKE_PREFIX_PATH}' -DCMAKE_C_COMPILER=/mingw64/bin/gcc -DCMAKE_CXX_COMPILER=/mingw64/bin/g++"
-            elif [ "${{ matrix.compiler }}" = "clang" ]; then
-              # Use LLVM clang from choco; ensure clang in PATH
-              cmake -S . -B build -G "Ninja" -A x64 \
-                -DCMAKE_BUILD_TYPE=Release \
-                -DCMAKE_PREFIX_PATH="${CMAKE_PREFIX_PATH}" \
-                -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
-            fi
-          fi
         shell: bash
+
+      - name: Configure CMake (Windows MSVC)
+        if: runner.os == 'Windows' && matrix.compiler == 'msvc'
+        env:
+          CMAKE_PREFIX_PATH: ${{ env.QTDIR || env.QT_INSTALL_DIR || '' }}
+        run: |
+          mkdir -p build
+          cmake -S . -B build -G "Ninja" -A x64 \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="${CMAKE_PREFIX_PATH}"
+        shell: powershell
+
+      - name: Configure CMake (Windows MinGW)
+        if: runner.os == 'Windows' && matrix.compiler == 'mingw'
+        env:
+          CMAKE_PREFIX_PATH: ${{ env.QTDIR || env.QT_INSTALL_DIR || '' }}
+        run: |
+          # run cmake inside MSYS2 bash so /mingw64 paths are available
+          C:/msys64/usr/bin/bash -lc "cmake -S /github/workspace -B /github/workspace/build -G 'MSYS Makefiles' -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH='${CMAKE_PREFIX_PATH}' -DCMAKE_C_COMPILER=/mingw64/bin/gcc -DCMAKE_CXX_COMPILER=/mingw64/bin/g++"
+        shell: powershell
+
+      - name: Configure CMake (Windows clang)
+        if: runner.os == 'Windows' && matrix.compiler == 'clang'
+        env:
+          CMAKE_PREFIX_PATH: ${{ env.QTDIR || env.QT_INSTALL_DIR || '' }}
+        run: |
+          mkdir -p build
+          cmake -S . -B build -G "Ninja" -A x64 \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="${CMAKE_PREFIX_PATH}" \
+            -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
+        shell: powershell
 
       - name: Build
         run: cmake --build build --config Release -- -j
@@ -130,7 +143,6 @@ jobs:
           QML_IMPORT_PATH: "${{ github.workspace }}/build/qml_modules"
         run: |
           if [ "${{ runner.os }}" = "Windows" ]; then
-            # exclude layout tests on Windows
             ctest --test-dir build --output-on-failure -E "layout" -j 2
           else
             ctest --test-dir build --output-on-failure --parallel $(nproc || echo 2)

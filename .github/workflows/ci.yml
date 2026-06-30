@@ -155,9 +155,19 @@ jobs:
             -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
         shell: powershell
 
-      - name: Build
-        run: cmake --build build --config Release -- -j
+      - name: Build (Linux / macOS, parallel)
+        if: runner.os != 'Windows'
+        run: |
+          echo "Building (Release) on $RUNNER_OS"
+          cmake --build build --config Release --parallel $(nproc || echo 2)
         shell: bash
+
+      - name: Build (Windows, parallel)
+        if: runner.os == 'Windows'
+        run: |
+          Write-Host "Building (Release) on Windows"
+          cmake --build build --config Release --parallel $env:NUMBER_OF_PROCESSORS
+        shell: powershell
 
       - name: Run tests
         env:

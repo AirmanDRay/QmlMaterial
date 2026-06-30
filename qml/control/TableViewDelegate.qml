@@ -30,8 +30,12 @@ T.ItemDelegate {
     required property bool editing
     // T.TableViewDelegate also exposed this as a built-in property
     // pointing back to the enclosing view; recovered the same way as
-    // in HorizontalHeaderViewDelegate.qml.
-    readonly property T.TableView tableView: TableView.view as T.TableView
+    // in HorizontalHeaderViewDelegate.qml. Note: unlike
+    // HorizontalHeaderView, plain TableView is core QtQuick, not a
+    // styled QtQuick.Controls type, so it has no T.TableView
+    // counterpart under QtQuick.Templates — the bare `TableView` type
+    // from the `import QtQuick` above is the only one that exists.
+    readonly property TableView tableView: TableView.view as TableView
     readonly property bool rowHovered: hovered || ((TableView.view as MD.TableView)?.hoveredRow ?? -1) === row
     property int rows: TableView.view?.rows ?? 0
     property int columns: TableView.view?.columns ?? 0

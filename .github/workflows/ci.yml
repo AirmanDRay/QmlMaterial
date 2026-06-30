@@ -49,15 +49,23 @@ jobs:
           choco install -y pkgconfiglite
         shell: powershell
 
-      - name: Install MinGW Qt (MSYS2)
+      - name: Install MinGW Qt components (MSYS2)
         if: runner.os == 'Windows' && matrix.compiler == 'mingw'
         run: |
             C:/msys64/usr/bin/bash -lc "
-                set -e
-                pacman -Syu --noconfirm || true
-                pacman -S --noconfirm --needed mingw-w64-x86_64-qt6-base mingw-w64-x86_64-qt6-declarative mingw-w64-x86_64-qt6-shadertools mingw-w64-x86_64-qt6-tools mingw-w64-x86_64-cmake mingw-w64-x86_64-toolchain
+            set -e
+            pacman -Syu --noconfirm || true
+            pacman -Ss '^mingw-w64-x86_64-qt6' | sed -n '1,200p'
+            pacman -S --noconfirm --needed \
+                mingw-w64-x86_64-toolchain \
+                base-devel \
+                mingw-w64-x86_64-cmake \
+                mingw-w64-x86_64-qt6-base \
+                mingw-w64-x86_64-qt6-declarative \
+                mingw-w64-x86_64-qt6-shadertools \
+                mingw-w64-x86_64-qt6-tools
             "
-            shell: powershell
+        shell: powershell
 
       - name: Install system deps (Windows clang/LLVM)
         if: runner.os == 'Windows' && matrix.compiler == 'clang'

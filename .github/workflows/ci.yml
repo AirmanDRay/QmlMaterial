@@ -69,6 +69,7 @@ jobs:
         with:
           version: '6.8.3'
           host: ${{ matrix.runner == 'macos-latest' && 'mac' || matrix.runner == 'windows-latest' && 'windows' || 'linux' }}
+          modules: 'qtshadertools'
 
       - name: Show Qt info (debug)
         run: |
@@ -76,33 +77,24 @@ jobs:
           ls -la "${QTDIR:-$QT_INSTALL_DIR}/lib/cmake" || true
         shell: bash
 
-      - name: Ensure ShaderTools present (Linux)
+      - name: Verify ShaderTools in Qt tree (Linux)
         if: runner.os == 'Linux'
         env:
           QTDIR: ${{ env.QTDIR || env.QT_INSTALL_DIR || '/opt/Qt/6.8.3' }}
         run: |
           echo "Checking for Qt6ShaderTools in ${QTDIR}"
           if [ -d "${QTDIR}/lib/cmake/Qt6ShaderTools" ]; then
-            echo "Qt6ShaderTools found in Qt install; skipping distro install."
+            echo "Qt6ShaderTools found in Qt install."
             ls -la "${QTDIR}/lib/cmake/Qt6ShaderTools" || true
             exit 0
           fi
-
-          echo "Qt6ShaderTools not found in Qt install; installing distro packages..."
-          sudo apt-get update
-          # install runtime + dev so CMake config files are present
-          sudo apt-get install -y libqt6shadertools6 qt6-shadertools-dev || true
-
-          echo "Distro ShaderTools install attempted. System cmake dir listing:"
-          ls -la /usr/lib/x86_64-linux-gnu/cmake || true
-          echo "Check for Qt6ShaderTools in system cmake tree:"
-          ls -la /usr/lib/x86_64-linux-gnu/cmake/Qt6ShaderTools || true
+          echo "Qt6ShaderTools not found in Qt install. The installer action may not have provided it."
+          ls -la "${QTDIR}/lib/cmake" || true
         shell: bash
 
       - name: Configure CMake (Linux / macOS)
         if: runner.os != 'Windows'
         env:
-          # include system cmake path so Qt6ShaderTools from distro can be found
           CMAKE_PREFIX_PATH: ${{ env.QTDIR || env.QT_INSTALL_DIR || '' }}:/usr/lib/x86_64-linux-gnu/cmake
         run: |
           # Prefer Qt-installed tools/libs at runtime
@@ -127,12 +119,12 @@ jobs:
               CC=clang CXX=clang++ cmake -S . -B build -G Ninja \
                 -DCMAKE_BUILD_TYPE=Release \
                 -DCMAKE_PREFIX_PATH="${CMAKE_PREFIX_PATH}" \
-                -DQt6ShaderTools_DIR="/usr/lib/x86_64-linux-gnu/cmake/Qt6ShaderTools"
+                -DQt6ShaderTools_DIR="${QTDIR}/lib/cmake/Qt6ShaderTools"
             else
               CC=gcc CXX=g++ cmake -S . -B build -G Ninja \
                 -DCMAKE_BUILD_TYPE=Release \
                 -DCMAKE_PREFIX_PATH="${CMAKE_PREFIX_PATH}" \
-                -DQt6ShaderTools_DIR="/usr/lib/x86_64-linux-gnu/cmake/Qt6ShaderTools"
+                -DQt6ShaderTools_DIR="${QTDIR}/lib/cmake/Qt6ShaderTools"
             fi
           else
             cmake -S . -B build -G Ninja \
@@ -146,9 +138,7 @@ jobs:
         env:
           CMAKE_PREFIX_PATH: ${{ env.QTDIR || env.QT_INSTALL_DIR || '' }}
         run: |
-          # Create build directory (PowerShell)
           New-Item -ItemType Directory -Force -Path build | Out-Null
-          # Run CMake with Ninja generator and platform for MSVC
           & cmake -S . -B build -G "Ninja" -A x64 -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$env:CMAKE_PREFIX_PATH"
         shell: powershell
 
@@ -163,30 +153,23 @@ jobs:
       - name: Configure CMake (Windows clang)
         if: runner.os == 'Windows' && matrix.compiler == 'clang'
         env:
-          # point to the Qt install (the jurplel action usually sets QT_INSTALL_DIR or QTDIR)
           CMAKE_PREFIX_PATH: ${{ env.QTDIR || env.QT_INSTALL_DIR || 'D:\\a\\QmlMaterial\\Qt\\6.8.3\\msvc2022_64' }}
         run: |
-          # Ensure clang-cl is on PATH (choco llvm installs clang-cl to Program Files)
           $llvmBin = 'C:\Program Files\LLVM\bin'
           if (Test-Path $llvmBin) {
             $env:PATH = "$llvmBin;$env:PATH"
           }
 
-          # Resolve QTDIR (use env var if set)
           $qtDir = $env:QTDIR
           if (-not $qtDir) { $qtDir = $env:QT_INSTALL_DIR }
           if (-not $qtDir) { $qtDir = 'D:\a\QmlMaterial\Qt\6.8.3\msvc2022_64' }
           Write-Host "Using Qt dir: $qtDir"
 
-          # Ensure we use the MSVC-built Qt libs at runtime
           $qtLib = Join-Path $qtDir 'lib'
           $env:PATH = "$qtLib;$env:PATH"
 
-          # Create build dir
           New-Item -ItemType Directory -Force -Path build | Out-Null
 
-          # Use clang-cl (MSVC-compatible) so the MSVC-built Qt works with Clang front-end.
-          # Do NOT pass -A x64 to Ninja generator; instead ensure the environment/compilers are correct.
           $cmakeArgs = @(
             '-S', '.',
             '-B', 'build',
@@ -205,7 +188,6 @@ jobs:
       - name: Build (Linux / macOS, parallel)
         if: runner.os != 'Windows'
         run: |
-          # Ensure we use the same Qt-installed libs at build/runtime
           QTDIR="${QTDIR:-${QT_INSTALL_DIR:-/opt/Qt/6.8.3}}"
           if [ -d "${QTDIR}/gcc_64/bin" ]; then
             QT_BIN="${QTDIR}/gcc_64/bin"
@@ -242,7 +224,7 @@ jobs:
         shell: bash
 
       - name: Upload logs on failure
-        if: failure()
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: ctest-logs-${{ matrix.runner }}-${{ matrix.compiler }}

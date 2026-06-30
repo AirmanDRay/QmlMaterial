@@ -75,41 +75,22 @@ jobs:
           ls -la "${QTDIR:-$QT_INSTALL_DIR}/lib/cmake" || true
         shell: bash
 
-      - name: Ensure ShaderTools present (Linux)
+      - name: Install Qt ShaderTools package (Ubuntu)
         if: runner.os == 'Linux'
-        env:
-          QTDIR: ${{ env.QTDIR || env.QT_INSTALL_DIR || '/opt/Qt/6.8.3' }}
         run: |
-          echo "Checking for Qt6ShaderTools in ${QTDIR}"
-          if [ -d "${QTDIR}/lib/cmake/Qt6ShaderTools" ]; then
-            echo "Qt6ShaderTools found; skipping fallback."
-            ls -la "${QTDIR}/lib/cmake/Qt6ShaderTools" || true
-            exit 0
-          fi
-          echo "Qt6ShaderTools not found; running fallback script."
-          chmod +x ci/install-qt-fallback-linux.sh
-          CI_QTDIR="${QTDIR}" ./ci/install-qt-fallback-linux.sh
+          sudo apt-get update
+          # Install the Qt6 ShaderTools runtime and dev package so CMake can find Qt6ShaderTools
+          sudo apt-get install -y libqt6shadertools6 qt6-shadertools-dev || true
+          echo "Installed system Qt6 ShaderTools packages (if available)."
+          # show where the system cmake files are
+          ls -la /usr/lib/x86_64-linux-gnu/cmake || true
         shell: bash
-
-      - name: Ensure ShaderTools present (Windows)
-        if: runner.os == 'Windows'
-        env:
-          QTDIR: ${{ env.QTDIR || env.QT_INSTALL_DIR || 'C:\\Qt\\6.8.3' }}
-        run: |
-          Write-Host "Checking for Qt6ShaderTools in $env:QTDIR"
-          if (Test-Path (Join-Path $env:QTDIR 'lib\cmake\Qt6ShaderTools')) {
-            Write-Host "Qt6ShaderTools found; skipping fallback."
-            Get-ChildItem (Join-Path $env:QTDIR 'lib\cmake\Qt6ShaderTools') -Force
-            exit 0
-          }
-          Write-Host "Qt6ShaderTools not found; running fallback script."
-          powershell -ExecutionPolicy Bypass -File ci/install-qt-fallback-windows.ps1 -QTDIR $env:QTDIR
-        shell: powershell
 
       - name: Configure CMake (Linux / macOS)
         if: runner.os != 'Windows'
         env:
-          CMAKE_PREFIX_PATH: ${{ env.QTDIR || env.QT_INSTALL_DIR || '' }}
+          # include system cmake path so Qt6ShaderTools from distro can be found
+          CMAKE_PREFIX_PATH: ${{ env.QTDIR || env.QT_INSTALL_DIR || '' }}:/usr/lib/x86_64-linux-gnu/cmake
         run: |
           mkdir -p build
           if [ "${{ runner.os }}" = "Linux" ]; then

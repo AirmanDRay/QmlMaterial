@@ -55,6 +55,8 @@ jobs:
         with:
           msystem: MINGW64
           update: true
+          # CRITICAL: Inherit Windows environment variables (so we can find Qt)
+          path-type: inherit
           install: >-
             mingw-w64-x86_64-toolchain
             base-devel
@@ -177,19 +179,23 @@ jobs:
       - name: Configure CMake (Windows MinGW)
         if: runner.os == 'Windows' && matrix.compiler == 'mingw'
         shell: msys2 {0}
-        env:
-          CMAKE_PREFIX_PATH: ${{ env.QTDIR || env.QT_INSTALL_DIR || '' }}
         run: |
-          # 'shell: msys2' natively handles path conversions for github.workspace
+          # Fetch the Windows Qt path (fallback to QTDIR or QT_INSTALL_DIR)
+          WIN_QT_PATH="${{ env.QTDIR || env.QT_INSTALL_DIR || '' }}"
+          
+          # Convert Windows backslashes '\' to POSIX forward slashes '/' for CMake
+          CONVERTED_QT_PATH=$(echo "$WIN_QT_PATH" | sed 's/\\/\//g')
+          
           BUILD_DIR="${{ github.workspace }}/build"
           mkdir -p "$BUILD_DIR"
-        
+          
+          # Pass the converted path directly to CMAKE_PREFIX_PATH
           cmake -S "${{ github.workspace }}" -B "$BUILD_DIR" -G "MinGW Makefiles" \
             -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_PREFIX_PATH="${CMAKE_PREFIX_PATH}" \
+            -DCMAKE_PREFIX_PATH="$CONVERTED_QT_PATH" \
             -DCMAKE_C_COMPILER=gcc \
             -DCMAKE_CXX_COMPILER=g++
-
+            
       - name: Configure CMake (Windows clang)
         if: runner.os == 'Windows' && matrix.compiler == 'clang'
         env:

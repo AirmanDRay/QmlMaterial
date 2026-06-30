@@ -62,22 +62,49 @@ jobs:
           choco install -y cmake --installargs 'ADD_CMAKE_TO_PATH=System'
         shell: powershell
 
-      - name: Install Qt 6.8.3 (request ShaderTools)
-        id: setup_qt
-        uses: qt-actions/setup-qt@v2
+      - name: Install Qt 6.8.3 (jurplel action)
+        id: install_qt
+        uses: jurplel/install-qt-action@v4
         with:
           version: '6.8.3'
           host: ${{ matrix.runner == 'macos-latest' && 'mac' || matrix.runner == 'windows-latest' && 'windows' || 'linux' }}
-          modules: qtbase,qtdeclarative,qtquick,qtquickcontrols2,qtgui,qttools,shadertools
 
       - name: Show Qt info (debug)
         run: |
           echo "QTDIR=${QTDIR:-$QT_INSTALL_DIR}"
-          echo "Listing installed Qt cmake packages (if any):"
           ls -la "${QTDIR:-$QT_INSTALL_DIR}/lib/cmake" || true
-          echo "Check ShaderTools dir:"
-          ls -la "${QTDIR:-$QT_INSTALL_DIR}/lib/cmake/Qt6ShaderTools" || true
         shell: bash
+
+      - name: Ensure ShaderTools present (Linux)
+        if: runner.os == 'Linux'
+        env:
+          QTDIR: ${{ env.QTDIR || env.QT_INSTALL_DIR || '/opt/Qt/6.8.3' }}
+        run: |
+          echo "Checking for Qt6ShaderTools in ${QTDIR}"
+          if [ -d "${QTDIR}/lib/cmake/Qt6ShaderTools" ]; then
+            echo "Qt6ShaderTools found; skipping fallback."
+            ls -la "${QTDIR}/lib/cmake/Qt6ShaderTools" || true
+            exit 0
+          fi
+          echo "Qt6ShaderTools not found; running fallback script."
+          chmod +x ci/install-qt-fallback-linux.sh
+          CI_QTDIR="${QTDIR}" ./ci/install-qt-fallback-linux.sh
+        shell: bash
+
+      - name: Ensure ShaderTools present (Windows)
+        if: runner.os == 'Windows'
+        env:
+          QTDIR: ${{ env.QTDIR || env.QT_INSTALL_DIR || 'C:\\Qt\\6.8.3' }}
+        run: |
+          Write-Host "Checking for Qt6ShaderTools in $env:QTDIR"
+          if (Test-Path (Join-Path $env:QTDIR 'lib\cmake\Qt6ShaderTools')) {
+            Write-Host "Qt6ShaderTools found; skipping fallback."
+            Get-ChildItem (Join-Path $env:QTDIR 'lib\cmake\Qt6ShaderTools') -Force
+            exit 0
+          }
+          Write-Host "Qt6ShaderTools not found; running fallback script."
+          powershell -ExecutionPolicy Bypass -File ci/install-qt-fallback-windows.ps1 -QTDIR $env:QTDIR
+        shell: powershell
 
       - name: Configure CMake (Linux / macOS)
         if: runner.os != 'Windows'

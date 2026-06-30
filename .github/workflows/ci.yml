@@ -29,7 +29,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential cmake ninja-build pkg-config libgl1-mesa-dev wget unzip
+          sudo apt-get install -y build-essential cmake ninja-build pkg-config libgl1-mesa-dev wget unzip xvfb libdrm2
           if [ "${{ matrix.compiler }}" = "clang" ]; then sudo apt-get install -y clang; fi
         shell: bash
 
@@ -253,16 +253,21 @@ jobs:
 
       - name: Run tests
         env:
-          LIBGL_ALWAYS_SOFTWARE: "1"
-          QT_QPA_PLATFORM: "offscreen"
           QML_IMPORT_PATH: "${{ github.workspace }}/build/qml_modules"
         run: |
           if [ "${{ runner.os }}" = "Windows" ]; then
+            # On Windows we skip visual tests (they require EGL/DRM)
             ctest --test-dir build --output-on-failure -E "visual_" -j 2
+          elif [ "${{ runner.os }}" = "macOS" ]; then
+            # macOS doesn't provide eglfs; skip visual tests there too
+            ctest --test-dir build --output-on-failure -E "visual_" --parallel $(sysctl -n hw.ncpu || echo 2)
           else
-            # Force offscreen platform for child processes too by prefixing the ctest invocation.
-            # This ensures tests that spawn child processes (qm_grab) see QT_QPA_PLATFORM=offscreen.
-            QT_QPA_PLATFORM=offscreen LIBGL_ALWAYS_SOFTWARE=1 ctest --test-dir build --output-on-failure --parallel $(nproc || echo 2)
+            # Linux: run visual tests under Xvfb so EGL/GL can work via Mesa llvmpipe.
+            # Prefix environment to ensure software rasterizer is used.
+            export LIBGL_ALWAYS_SOFTWARE=1
+            export QT_QPA_PLATFORM=eglfs
+            # Run ctest under Xvfb so child processes can use EGL/GL paths.
+            xvfb-run -s "-screen 0 1280x720x24" ctest --test-dir build --output-on-failure --parallel $(nproc || echo 2)
           fi
         shell: bash
 

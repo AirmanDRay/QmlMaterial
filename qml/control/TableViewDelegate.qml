@@ -3,15 +3,7 @@ import QtQuick
 import QtQuick.Templates as T
 import Qcm.Material as MD
 
-// Qt 6.8 compatibility note:
-// TableViewDelegate was only added in Qt 6.10. T.ItemDelegate is the
-// equivalent base available since Qt 6.8. Plain TableView (unlike
-// HorizontalHeaderView) has supported `required property bool selected
-// / current / editing` since Qt 6.2 — if a delegate declares them,
-// TableView keeps them in sync automatically regardless of the
-// delegate's base class — so selection still works correctly here,
-// unlike the header delegate where this trick isn't available.
-T.ItemDelegate {
+T.TableViewDelegate {
     id: control
 
     implicitWidth: Math.max(implicitBackgroundWidth + leftInset + rightInset, implicitContentWidth + leftPadding + rightPadding)
@@ -25,17 +17,6 @@ T.ItemDelegate {
     required property int column
     required property int row
     required property var model
-    required property bool selected
-    required property bool current
-    required property bool editing
-    // T.TableViewDelegate also exposed this as a built-in property
-    // pointing back to the enclosing view; recovered the same way as
-    // in HorizontalHeaderViewDelegate.qml. Note: unlike
-    // HorizontalHeaderView, plain TableView is core QtQuick, not a
-    // styled QtQuick.Controls type, so it has no T.TableView
-    // counterpart under QtQuick.Templates — the bare `TableView` type
-    // from the `import QtQuick` above is the only one that exists.
-    readonly property TableView tableView: TableView.view as TableView
     readonly property bool rowHovered: hovered || ((TableView.view as MD.TableView)?.hoveredRow ?? -1) === row
     property int rows: TableView.view?.rows ?? 0
     property int columns: TableView.view?.columns ?? 0

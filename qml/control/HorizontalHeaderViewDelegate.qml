@@ -3,13 +3,7 @@ import QtQuick
 import QtQuick.Templates as T
 import Qcm.Material as MD
 
-// Qt 6.8 compatibility note:
-// HeaderViewDelegate (and thus HorizontalHeaderViewDelegate) was only
-// added in Qt 6.10. T.ItemDelegate is the equivalent base available
-// since Qt 6.8. Everything T.HeaderViewDelegate gave us for free —
-// the `headerView` back-reference and `selected` sync with the
-// syncView's SelectionRectangle — is reproduced manually below.
-T.ItemDelegate {
+T.HeaderViewDelegate {
     id: control
 
     leftPadding: 16
@@ -20,20 +14,6 @@ T.ItemDelegate {
     required property int column
     required property int row
     readonly property int section: Math.max(row, column)
-
-    // HorizontalHeaderView is itself a TableView under the hood, so
-    // the standard TableView.view attached property (available since
-    // Qt 5.14) recovers the enclosing header view without needing
-    // T.HeaderViewDelegate's built-in `headerView` property.
-    readonly property T.HorizontalHeaderView headerView: TableView.view as T.HorizontalHeaderView
-
-    // T.HeaderViewDelegate also auto-syncs `selected` with the
-    // syncView's SelectionRectangle. That wiring isn't available on
-    // 6.8, and this project's TableView uses
-    // selectionBehavior: TableView.SelectionDisabled, so header cells
-    // are never actually selectable — this is a safe no-op stand-in.
-    readonly property bool selected: false
-
     readonly property string textRole: control.headerView?.textRole ?? ""
     readonly property int columns: {
         const syncColumns = control.headerView?.syncView?.columns ?? 0;

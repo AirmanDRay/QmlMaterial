@@ -101,36 +101,23 @@ jobs:
       - name: Configure CMake (Linux / macOS)
         if: runner.os != 'Windows'
         env:
-          # include system cmake path so Qt6ShaderTools from distro can be found if needed
+          # include system cmake path so Qt6ShaderTools from distro can be found
           CMAKE_PREFIX_PATH: ${{ env.QTDIR || env.QT_INSTALL_DIR || '' }}:/usr/lib/x86_64-linux-gnu/cmake
         run: |
-          # Resolve QTDIR (the jurplel action or other installer sets QTDIR or QT_INSTALL_DIR)
+          # Prefer Qt-installed tools/libs at runtime
           QTDIR="${QTDIR:-${QT_INSTALL_DIR:-/opt/Qt/6.8.3}}"
-          echo "Using QTDIR=${QTDIR}"
-
-          # Prefer Qt-installed tools and libraries so qsb and libQt6ShaderTools come from the same Qt tree
-          # Try common layout variants (gcc_64, lib/cmake etc.)
           if [ -d "${QTDIR}/gcc_64/bin" ]; then
             QT_BIN="${QTDIR}/gcc_64/bin"
             QT_LIB="${QTDIR}/gcc_64/lib"
-          elif [ -d "${QTDIR}/bin" ]; then
-            QT_BIN="${QTDIR}/bin"
-            QT_LIB="${QTDIR}/lib"
           else
             QT_BIN="${QTDIR}/bin"
             QT_LIB="${QTDIR}/lib"
           fi
-
-          echo "QT_BIN=${QT_BIN}"
-          echo "QT_LIB=${QT_LIB}"
-
           export PATH="${QT_BIN}:${PATH}"
           export LD_LIBRARY_PATH="${QT_LIB}:${LD_LIBRARY_PATH:-}"
 
-          # show which qsb and which lib are used (debug)
+          echo "Using QTDIR=${QTDIR}"
           echo "which qsb: $(which qsb || true)"
-          echo "qsb --version: $(qsb --version 2>/dev/null || true)"
-          echo "ldd qsb (first lines):"
           ldd "$(which qsb 2>/dev/null || true)" 2>/dev/null | head -n 20 || true
 
           mkdir -p build
@@ -158,10 +145,10 @@ jobs:
         env:
           CMAKE_PREFIX_PATH: ${{ env.QTDIR || env.QT_INSTALL_DIR || '' }}
         run: |
-          mkdir -p build
-          cmake -S . -B build -G "Ninja" -A x64 \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_PREFIX_PATH="${CMAKE_PREFIX_PATH}"
+          # Create build directory (PowerShell)
+          New-Item -ItemType Directory -Force -Path build | Out-Null
+          # Run CMake with Ninja generator and platform for MSVC
+          & cmake -S . -B build -G "Ninja" -A x64 -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$env:CMAKE_PREFIX_PATH"
         shell: powershell
 
       - name: Configure CMake (Windows MinGW)
@@ -177,17 +164,31 @@ jobs:
         env:
           CMAKE_PREFIX_PATH: ${{ env.QTDIR || env.QT_INSTALL_DIR || '' }}
         run: |
-          mkdir -p build
-          cmake -S . -B build -G "Ninja" -A x64 \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_PREFIX_PATH="${CMAKE_PREFIX_PATH}" \
-            -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
+          # Create build directory (PowerShell)
+          New-Item -ItemType Directory -Force -Path build | Out-Null
+
+          # On Windows with the Ninja generator you must not pass -A x64 (Ninja doesn't accept platform).
+          # Instead, ensure the correct compiler is selected and pass compiler variables to CMake.
+          # Use PowerShell's call operator (&) to run cmake with arguments.
+          & cmake -S . -B build -G "Ninja" -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$env:CMAKE_PREFIX_PATH" -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
         shell: powershell
 
       - name: Build (Linux / macOS, parallel)
         if: runner.os != 'Windows'
         run: |
-          echo "Building (Release) on $RUNNER_OS"
+          # Ensure we use the same Qt-installed libs at build/runtime
+          QTDIR="${QTDIR:-${QT_INSTALL_DIR:-/opt/Qt/6.8.3}}"
+          if [ -d "${QTDIR}/gcc_64/bin" ]; then
+            QT_BIN="${QTDIR}/gcc_64/bin"
+            QT_LIB="${QTDIR}/gcc_64/lib"
+          else
+            QT_BIN="${QTDIR}/bin"
+            QT_LIB="${QTDIR}/lib"
+          fi
+          export PATH="${QT_BIN}:${PATH}"
+          export LD_LIBRARY_PATH="${QT_LIB}:${LD_LIBRARY_PATH:-}"
+
+          echo "Building (Release) on $RUNNER_OS using QT_BIN=${QT_BIN}"
           cmake --build build --config Release --parallel $(nproc || echo 2)
         shell: bash
 

@@ -1,4 +1,4 @@
-name: CI — Qt 6.8.8 multi-compiler build & tests
+name: CI — Qt 6.8.7 multi-compiler build & tests
 on: [push, pull_request]
 
 jobs:
@@ -68,11 +68,11 @@ jobs:
           choco install -y pkgconfiglite
         shell: powershell
 
-      - name: Install Qt 6.8.8 (jurplel action)
+      - name: Install Qt 6.8.7 (jurplel action)
         id: install_qt
         uses: jurplel/install-qt-action@v4
         with:
-          version: '6.8.8'
+          version: '6.8.7'
           host: ${{ matrix.runner == 'macos-latest' && 'mac' || matrix.runner == 'windows-latest' && 'windows' || 'linux' }}
           modules: 'qtshadertools'
 
@@ -85,7 +85,7 @@ jobs:
       - name: Verify ShaderTools in Qt tree (Linux)
         if: runner.os == 'Linux'
         env:
-          QTDIR: ${{ env.QTDIR || env.QT_INSTALL_DIR || '/opt/Qt/6.8.8' }}
+          QTDIR: ${{ env.QTDIR || env.QT_INSTALL_DIR || '/opt/Qt/6.8.7' }}
         run: |
           echo "Checking for Qt6ShaderTools in ${QTDIR}"
           if [ -d "${QTDIR}/lib/cmake/Qt6ShaderTools" ]; then
@@ -103,7 +103,7 @@ jobs:
           CMAKE_PREFIX_PATH: ${{ env.QTDIR || env.QT_INSTALL_DIR || '' }}:/usr/lib/x86_64-linux-gnu/cmake
         run: |
           # Prefer Qt-installed tools/libs at runtime
-          QTDIR="${QTDIR:-${QT_INSTALL_DIR:-/opt/Qt/6.8.8}}"
+          QTDIR="${QTDIR:-${QT_INSTALL_DIR:-/opt/Qt/6.8.7}}"
           if [ -d "${QTDIR}/gcc_64/bin" ]; then
             QT_BIN="${QTDIR}/gcc_64/bin"
             QT_LIB="${QTDIR}/gcc_64/lib"
@@ -192,7 +192,7 @@ jobs:
       - name: Configure CMake (Windows clang)
         if: runner.os == 'Windows' && matrix.compiler == 'clang'
         env:
-          CMAKE_PREFIX_PATH: ${{ env.QTDIR || env.QT_INSTALL_DIR || 'D:\\a\\QmlMaterial\\Qt\\6.8.8\\msvc2022_64' }}
+          CMAKE_PREFIX_PATH: ${{ env.QTDIR || env.QT_INSTALL_DIR || 'D:\\a\\QmlMaterial\\Qt\\6.8.7\\msvc2022_64' }}
         run: |
           $llvmBin = 'C:\Program Files\LLVM\bin'
           if (Test-Path $llvmBin) {
@@ -201,7 +201,7 @@ jobs:
 
           $qtDir = $env:QTDIR
           if (-not $qtDir) { $qtDir = $env:QT_INSTALL_DIR }
-          if (-not $qtDir) { $qtDir = 'D:\a\QmlMaterial\Qt\6.8.8\msvc2022_64' }
+          if (-not $qtDir) { $qtDir = 'D:\a\QmlMaterial\Qt\6.8.7\msvc2022_64' }
           Write-Host "Using Qt dir: $qtDir"
 
           $qtLib = Join-Path $qtDir 'lib'
@@ -227,7 +227,7 @@ jobs:
       - name: Build (Linux / macOS, parallel)
         if: runner.os != 'Windows'
         run: |
-          QTDIR="${QTDIR:-${QT_INSTALL_DIR:-/opt/Qt/6.8.8}}"
+          QTDIR="${QTDIR:-${QT_INSTALL_DIR:-/opt/Qt/6.8.7}}"
           if [ -d "${QTDIR}/gcc_64/bin" ]; then
             QT_BIN="${QTDIR}/gcc_64/bin"
             QT_LIB="${QTDIR}/gcc_64/lib"

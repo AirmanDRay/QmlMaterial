@@ -40,17 +40,11 @@ jobs:
           brew install cmake ninja
         shell: bash
 
-      - name: Configure CMake (Windows MSVC)
+      - name: Install system deps (Windows MSVC)
         if: runner.os == 'Windows' && matrix.compiler == 'msvc'
-        env:
-          CMAKE_PREFIX_PATH: ${{ env.QTDIR || env.QT_INSTALL_DIR || '' }}
         run: |
-          # Create build directory
-          New-Item -ItemType Directory -Force -Path build | Out-Null
-
-          # Use Visual Studio generator so -A x64 is accepted and MSVC toolchain is used.
-          # This will generate MSBuild project files and respects -A x64.
-          & cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$env:CMAKE_PREFIX_PATH"
+          choco install -y cmake --installargs 'ADD_CMAKE_TO_PATH=System'
+          choco install -y visualstudio2022-workload-vctools --ignore-checksums
         shell: powershell
 
       - name: Install system deps (Windows MinGW)
@@ -147,8 +141,34 @@ jobs:
         env:
           CMAKE_PREFIX_PATH: ${{ env.QTDIR || env.QT_INSTALL_DIR || '' }}
         run: |
+          # Create build directory
           New-Item -ItemType Directory -Force -Path build | Out-Null
-          & cmake -S . -B build -G "Ninja" -A x64 -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$env:CMAKE_PREFIX_PATH"
+
+          # Locate Visual Studio installation using vswhere
+          $vswhere = Join-Path $env:ProgramFiles(x86) 'Microsoft Visual Studio\Installer\vswhere.exe'
+          if (-not (Test-Path $vswhere)) {
+            Write-Error "vswhere.exe not found at $vswhere. Visual Studio may not be installed on the runner."
+            exit 1
+          }
+
+          $instPath = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (-not $instPath) {
+            Write-Error "No Visual Studio instance with MSVC toolset found by vswhere."
+            exit 1
+          }
+          Write-Host "Found Visual Studio at: $instPath"
+
+          # Path to the developer command script
+          $vsDevCmd = Join-Path $instPath 'Common7\Tools\VsDevCmd.bat'
+          if (-not (Test-Path $vsDevCmd)) {
+            Write-Error "VsDevCmd.bat not found at $vsDevCmd"
+            exit 1
+          }
+
+          # Run the developer environment for x64 and then call cmake (Ninja generator).
+          $cmakeCmd = "cmake -S . -B build -G ""Ninja"" -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=`"$env:CMAKE_PREFIX_PATH`""
+          Write-Host "Invoking VsDevCmd and running cmake (Ninja)..."
+          cmd /c "`"$vsDevCmd`" -arch=amd64 && $cmakeCmd"
         shell: powershell
 
       - name: Configure CMake (Windows MinGW)

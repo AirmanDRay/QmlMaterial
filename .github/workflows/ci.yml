@@ -53,13 +53,11 @@ jobs:
         if: runner.os == 'Windows' && matrix.compiler == 'mingw'
         run: |
             C:/msys64/usr/bin/bash -lc "
-            set -e
-            pacman -Syu --noconfirm || true
-            pacman -S --noconfirm --needed mingw-w64-x86_64-toolchain base-devel mingw-w64-x86_64-cmake \
-                mingw-w64-x86_64-qt6-base mingw-w64-x86_64-qt6-declarative mingw-w64-x86_64-qt6-qtquickcontrols2 \
-                mingw-w64-x86_64-qt6-shadertools mingw-w64-x86_64-qt6-tools
+                set -e
+                pacman -Syu --noconfirm || true
+                pacman -S --noconfirm --needed mingw-w64-x86_64-qt6-base mingw-w64-x86_64-qt6-declarative mingw-w64-x86_64-qt6-shadertools mingw-w64-x86_64-qt6-tools mingw-w64-x86_64-cmake mingw-w64-x86_64-toolchain
             "
-        shell: powershell
+            shell: powershell
 
       - name: Install system deps (Windows clang/LLVM)
         if: runner.os == 'Windows' && matrix.compiler == 'clang'

@@ -145,7 +145,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path build | Out-Null
 
           # Locate Visual Studio installation using vswhere
-          $vswhere = Join-Path $env:ProgramFiles(x86) 'Microsoft Visual Studio\Installer\vswhere.exe'
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
           if (-not (Test-Path $vswhere)) {
             Write-Error "vswhere.exe not found at $vswhere. Visual Studio may not be installed on the runner."
             exit 1
@@ -176,7 +176,13 @@ jobs:
         env:
           CMAKE_PREFIX_PATH: ${{ env.QTDIR || env.QT_INSTALL_DIR || '' }}
         run: |
-          C:/msys64/usr/bin/bash -lc "cmake -S /github/workspace -B /github/workspace/build -G 'MSYS Makefiles' -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH='${CMAKE_PREFIX_PATH}' -DCMAKE_C_COMPILER=/mingw64/bin/gcc -DCMAKE_CXX_COMPILER=/mingw64/bin/g++"
+          # Use the MinGW cmake binary installed by pacman
+          $mingwCMake = 'C:\msys64\mingw64\bin\cmake.exe'
+          if (-not (Test-Path $mingwCMake)) {
+            Write-Error "MinGW cmake not found at $mingwCMake. Ensure pacman installed mingw-w64-x86_64-cmake."
+            exit 1
+          }
+          & $mingwCMake -S /github/workspace -B /github/workspace/build -G "MSYS Makefiles" -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$env:CMAKE_PREFIX_PATH" -DCMAKE_C_COMPILER=/mingw64/bin/gcc -DCMAKE_CXX_COMPILER=/mingw64/bin/g++
         shell: powershell
 
       - name: Configure CMake (Windows clang)
@@ -248,7 +254,9 @@ jobs:
           if [ "${{ runner.os }}" = "Windows" ]; then
             ctest --test-dir build --output-on-failure -E "visual_" -j 2
           else
-            ctest --test-dir build --output-on-failure --parallel $(nproc || echo 2)
+            # Force offscreen platform for child processes too by prefixing the ctest invocation.
+            # This ensures tests that spawn child processes (qm_grab) see QT_QPA_PLATFORM=offscreen.
+            QT_QPA_PLATFORM=offscreen LIBGL_ALWAYS_SOFTWARE=1 ctest --test-dir build --output-on-failure --parallel $(nproc || echo 2)
           fi
         shell: bash
 

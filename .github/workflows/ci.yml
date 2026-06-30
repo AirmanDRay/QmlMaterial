@@ -49,18 +49,23 @@ jobs:
           choco install -y pkgconfiglite
         shell: powershell
 
-      - name: Setup MSYS2 and Install Toolchain (Windows MinGW)
+      - name: Install MinGW Qt and toolchain (MSYS2)
         if: runner.os == 'Windows' && matrix.compiler == 'mingw'
-        uses: msys2/setup-msys2@v2
-        with:
-          msystem: MINGW64
-          update: true
-          # CRITICAL: Inherit Windows environment variables (so we can find Qt)
-          path-type: inherit
-          install: >-
-            mingw-w64-x86_64-toolchain
-            base-devel
-            mingw-w64-x86_64-cmake
+        run: |
+            C:/msys64/usr/bin/bash -lc "
+            set -e
+            # Ensure pacman DB is up-to-date
+            pacman -Syu --noconfirm || true
+
+            # Install MinGW toolchain and Qt packages for MinGW
+            pacman -S --noconfirm mingw-w64-x86_64-toolchain base-devel \
+                mingw-w64-x86_64-cmake mingw-w64-x86_64-qt6 mingw-w64-x86_64-qt6-tools \
+                mingw-w64-x86_64-qt6-qtbase mingw-w64-x86_64-qt6-qtdeclarative mingw-w64-x86_64-qt6-qtquickcontrols2
+
+            # Verify Qt6 CMake files exist
+            ls -la /mingw64/lib/cmake/Qt6 || true
+            "
+        shell: powershell
 
       - name: Install system deps (Windows clang/LLVM)
         if: runner.os == 'Windows' && matrix.compiler == 'clang'
@@ -176,25 +181,26 @@ jobs:
           cmd /c "`"$vsDevCmd`" -arch=amd64 && $cmakeCmd"
         shell: powershell
 
-      - name: Configure CMake (Windows MinGW)
+      - name: Configure CMake (Windows MinGW, MSYS2)
         if: runner.os == 'Windows' && matrix.compiler == 'mingw'
-        shell: msys2 {0}
         run: |
-          # Fetch the Windows Qt path (fallback to QTDIR or QT_INSTALL_DIR)
-          WIN_QT_PATH="${{ env.QTDIR || env.QT_INSTALL_DIR || '' }}"
-          
-          # Convert Windows backslashes '\' to POSIX forward slashes '/' for CMake
-          CONVERTED_QT_PATH=$(echo "$WIN_QT_PATH" | sed 's/\\/\//g')
-          
-          BUILD_DIR="${{ github.workspace }}/build"
-          mkdir -p "$BUILD_DIR"
-          
-          # Pass the converted path directly to CMAKE_PREFIX_PATH
-          cmake -S "${{ github.workspace }}" -B "$BUILD_DIR" -G "MinGW Makefiles" \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_PREFIX_PATH="$CONVERTED_QT_PATH" \
-            -DCMAKE_C_COMPILER=gcc \
-            -DCMAKE_CXX_COMPILER=g++
+            C:/msys64/usr/bin/bash -lc "
+            set -e
+            export PATH=/mingw64/bin:/usr/bin:\$PATH
+
+            SRC=\$(cygpath -u '${{ github.workspace }}')
+            BUILD_DIR=\"\$SRC/build\"
+            mkdir -p \"\$BUILD_DIR\"
+
+            # Force CMake to use the MinGW Qt installed under /mingw64
+            cmake -S \"\$SRC\" -B \"\$BUILD_DIR\" -G 'MinGW Makefiles' \
+                -DCMAKE_BUILD_TYPE=Release \
+                -DCMAKE_PREFIX_PATH=/mingw64 \
+                -DQt6_DIR=/mingw64/lib/cmake/Qt6 \
+                -DCMAKE_C_COMPILER=/mingw64/bin/gcc.exe \
+                -DCMAKE_CXX_COMPILER=/mingw64/bin/g++.exe
+            "
+        shell: powershell
             
       - name: Configure CMake (Windows clang)
         if: runner.os == 'Windows' && matrix.compiler == 'clang'
@@ -251,10 +257,14 @@ jobs:
 
       - name: Build (Windows MinGW)
         if: runner.os == 'Windows' && matrix.compiler == 'mingw'
-        shell: msys2 {0}
         run: |
-          # Safe core detection using nproc, falling back to 2 if it fails
-          cmake --build "${{ github.workspace }}/build" --config Release -- -j$(nproc || echo 2)
+            C:/msys64/usr/bin/bash -lc "
+            set -e
+            export PATH=/mingw64/bin:/usr/bin:\$PATH
+            SRC=\$(cygpath -u '${{ github.workspace }}')
+            cmake --build \"\$SRC/build\" --config Release -- -j\$(nproc || echo 2)
+            "
+        shell: powershell
 
       - name: Build (Windows, parallel)
         if: runner.os == 'Windows' && matrix.compiler != 'mingw'

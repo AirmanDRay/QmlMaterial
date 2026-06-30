@@ -20,7 +20,7 @@ jobs:
             compiler: mingw
           - runner: windows-latest
             compiler: clang
-    timeout-minutes: 120
+    timeout-minutes: 20
 
     steps:
       - uses: actions/checkout@v4
@@ -45,6 +45,8 @@ jobs:
         run: |
           choco install -y cmake --installargs 'ADD_CMAKE_TO_PATH=System'
           choco install -y visualstudio2022-workload-vctools --ignore-checksums
+          # Provide pkg-config for CMake FindPkgConfig
+          choco install -y pkgconfiglite
         shell: powershell
 
       - name: Install system deps (Windows MinGW)
@@ -176,13 +178,17 @@ jobs:
         env:
           CMAKE_PREFIX_PATH: ${{ env.QTDIR || env.QT_INSTALL_DIR || '' }}
         run: |
-          # Use the MinGW cmake binary installed by pacman
+          # Ensure MSYS2 and MinGW cmake were installed by the previous step
           $mingwCMake = 'C:\msys64\mingw64\bin\cmake.exe'
           if (-not (Test-Path $mingwCMake)) {
             Write-Error "MinGW cmake not found at $mingwCMake. Ensure pacman installed mingw-w64-x86_64-cmake."
             exit 1
           }
-          & $mingwCMake -S /github/workspace -B /github/workspace/build -G "MSYS Makefiles" -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$env:CMAKE_PREFIX_PATH" -DCMAKE_C_COMPILER=/mingw64/bin/gcc -DCMAKE_CXX_COMPILER=/mingw64/bin/g++
+
+          # Use Windows-style paths for source and build directories
+          $src = "${env:GITHUB_WORKSPACE}"
+          $build = "${env:GITHUB_WORKSPACE}\build"
+          & $mingwCMake -S $src -B $build -G "MSYS Makefiles" -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$env:CMAKE_PREFIX_PATH" -DCMAKE_C_COMPILER=/mingw64/bin/gcc -DCMAKE_CXX_COMPILER=/mingw64/bin/g++
         shell: powershell
 
       - name: Configure CMake (Windows clang)

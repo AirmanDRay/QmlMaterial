@@ -20,7 +20,7 @@ jobs:
             compiler: mingw
           - runner: windows-latest
             compiler: clang
-    timeout-minutes: 20
+    timeout-minutes: 30
 
     steps:
       - uses: actions/checkout@v4
@@ -29,7 +29,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential cmake ninja-build pkg-config libgl1-mesa-dev wget unzip xvfb libdrm2
+          sudo apt-get install -y build-essential cmake ninja-build pkg-config libgl1-mesa-dev libgles2-mesa-dev libegl1-mesa-dev libgbm-dev xvfb wget unzip
           if [ "${{ matrix.compiler }}" = "clang" ]; then sudo apt-get install -y clang; fi
         shell: bash
 
@@ -179,16 +179,19 @@ jobs:
           CMAKE_PREFIX_PATH: ${{ env.QTDIR || env.QT_INSTALL_DIR || '' }}
         run: |
           # Ensure MSYS2 and MinGW cmake were installed by the previous step
-          $mingwCMake = 'C:\msys64\mingw64\bin\cmake.exe'
-          if (-not (Test-Path $mingwCMake)) {
-            Write-Error "MinGW cmake not found at $mingwCMake. Ensure pacman installed mingw-w64-x86_64-cmake."
-            exit 1
-          }
-
-          # Use Windows-style paths for source and build directories
-          $src = "${env:GITHUB_WORKSPACE}"
-          $build = "${env:GITHUB_WORKSPACE}\build"
-          & $mingwCMake -S $src -B $build -G "MSYS Makefiles" -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$env:CMAKE_PREFIX_PATH" -DCMAKE_C_COMPILER=/mingw64/bin/gcc -DCMAKE_CXX_COMPILER=/mingw64/bin/g++
+          C:/msys64/usr/bin/bash -lc "
+            set -e
+            # Ensure the mingw toolchain is on PATH
+            export PATH=/mingw64/bin:/usr/bin:\$PATH
+            # Re-run pacman update if needed (safe no-op if already up-to-date)
+            pacman -Syu --noconfirm || true
+            # Configure using POSIX paths (works inside MSYS)
+            cmake -S /github/workspace -B /github/workspace/build -G 'MSYS Makefiles' \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DCMAKE_PREFIX_PATH='${CMAKE_PREFIX_PATH}' \
+              -DCMAKE_C_COMPILER=/mingw64/bin/gcc \
+              -DCMAKE_CXX_COMPILER=/mingw64/bin/g++
+          "
         shell: powershell
 
       - name: Configure CMake (Windows clang)
@@ -247,8 +250,30 @@ jobs:
       - name: Build (Windows, parallel)
         if: runner.os == 'Windows'
         run: |
-          Write-Host "Building (Release) on Windows"
-          cmake --build build --config Release --parallel $env:NUMBER_OF_PROCESSORS
+          # Locate vswhere
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          if (-not (Test-Path $vswhere)) {
+            Write-Error "vswhere.exe not found at $vswhere"
+            exit 1
+          }
+
+          $instPath = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (-not $instPath) {
+            Write-Error "No Visual Studio instance with MSVC toolset found by vswhere."
+            exit 1
+          }
+          Write-Host "Found Visual Studio at: $instPath"
+
+          $vsDevCmd = Join-Path $instPath 'Common7\Tools\VsDevCmd.bat'
+          if (-not (Test-Path $vsDevCmd)) {
+            Write-Error "VsDevCmd.bat not found at $vsDevCmd"
+            exit 1
+          }
+
+          # Run the developer environment and then build with cmake (Ninja)
+          $buildCmd = 'cmake --build build --config Release --parallel %NUMBER_OF_PROCESSORS%'
+          Write-Host "Running build inside VS developer environment..."
+          cmd /c "`"$vsDevCmd`" -arch=amd64 && $buildCmd"
         shell: powershell
 
       - name: Run tests
@@ -256,18 +281,17 @@ jobs:
           QML_IMPORT_PATH: "${{ github.workspace }}/build/qml_modules"
         run: |
           if [ "${{ runner.os }}" = "Windows" ]; then
-            # On Windows we skip visual tests (they require EGL/DRM)
+            # Skip visual tests on Windows (they require EGL/DRM or ANGLE)
             ctest --test-dir build --output-on-failure -E "visual_" -j 2
           elif [ "${{ runner.os }}" = "macOS" ]; then
-            # macOS doesn't provide eglfs; skip visual tests there too
+            # macOS doesn't provide eglfs; skip visual tests there
             ctest --test-dir build --output-on-failure -E "visual_" --parallel $(sysctl -n hw.ncpu || echo 2)
           else
-            # Linux: run visual tests under Xvfb so EGL/GL can work via Mesa llvmpipe.
-            # Prefix environment to ensure software rasterizer is used.
+            # Linux: run visual tests under Xvfb and use XCB + Mesa llvmpipe
             export LIBGL_ALWAYS_SOFTWARE=1
-            export QT_QPA_PLATFORM=eglfs
-            # Run ctest under Xvfb so child processes can use EGL/GL paths.
-            xvfb-run -s "-screen 0 1280x720x24" ctest --test-dir build --output-on-failure --parallel $(nproc || echo 2)
+            export QT_QPA_PLATFORM=xcb
+            # Ensure child processes inherit the env; run ctest under Xvfb
+            xvfb-run -s "-screen 0 1280x720x24" env QT_QPA_PLATFORM=xcb LIBGL_ALWAYS_SOFTWARE=1 ctest --test-dir build --output-on-failure --parallel $(nproc || echo 2)
           fi
         shell: bash
 

@@ -19,7 +19,7 @@ jobs:
             compiler: mingw
           - runner: windows-latest
             compiler: clang
-    timeout-minutes: 90
+    timeout-minutes: 120
 
     steps:
       - uses: actions/checkout@v4
@@ -28,7 +28,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential cmake ninja-build pkg-config libgl1-mesa-dev
+          sudo apt-get install -y build-essential cmake ninja-build pkg-config libgl1-mesa-dev wget unzip
           if [ "${{ matrix.compiler }}" = "clang" ]; then sudo apt-get install -y clang; fi
         shell: bash
 
@@ -62,17 +62,20 @@ jobs:
           choco install -y cmake --installargs 'ADD_CMAKE_TO_PATH=System'
         shell: powershell
 
-      - name: Install Qt 6.8.3 (with required modules)
+      - name: Install Qt 6.8.3 (request ShaderTools)
+        id: setup_qt
         uses: qt-actions/setup-qt@v2
         with:
           version: '6.8.3'
           host: ${{ matrix.runner == 'macos-latest' && 'mac' || matrix.runner == 'windows-latest' && 'windows' || 'linux' }}
           modules: qtbase,qtdeclarative,qtquick,qtquickcontrols2,qtgui,qttools,shadertools
 
-      - name: Debug Qt install (list cmake packages)
+      - name: Show Qt info (debug)
         run: |
           echo "QTDIR=${QTDIR:-$QT_INSTALL_DIR}"
+          echo "Listing installed Qt cmake packages (if any):"
           ls -la "${QTDIR:-$QT_INSTALL_DIR}/lib/cmake" || true
+          echo "Check ShaderTools dir:"
           ls -la "${QTDIR:-$QT_INSTALL_DIR}/lib/cmake/Qt6ShaderTools" || true
         shell: bash
 
@@ -93,7 +96,6 @@ jobs:
                 -DCMAKE_PREFIX_PATH="${CMAKE_PREFIX_PATH}"
             fi
           else
-            # macOS (Xcode / Apple Clang)
             cmake -S . -B build -G Ninja \
               -DCMAKE_BUILD_TYPE=Release \
               -DCMAKE_PREFIX_PATH="${CMAKE_PREFIX_PATH}"
@@ -116,7 +118,6 @@ jobs:
         env:
           CMAKE_PREFIX_PATH: ${{ env.QTDIR || env.QT_INSTALL_DIR || '' }}
         run: |
-          # run cmake inside MSYS2 bash so /mingw64 paths are available
           C:/msys64/usr/bin/bash -lc "cmake -S /github/workspace -B /github/workspace/build -G 'MSYS Makefiles' -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH='${CMAKE_PREFIX_PATH}' -DCMAKE_C_COMPILER=/mingw64/bin/gcc -DCMAKE_CXX_COMPILER=/mingw64/bin/g++"
         shell: powershell
 

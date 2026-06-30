@@ -5,6 +5,7 @@ jobs:
   matrix:
     runs-on: ${{ matrix.runner }}
     strategy:
+      fail-fast: false
       matrix:
         include:
           - runner: ubuntu-latest
@@ -162,15 +163,43 @@ jobs:
       - name: Configure CMake (Windows clang)
         if: runner.os == 'Windows' && matrix.compiler == 'clang'
         env:
-          CMAKE_PREFIX_PATH: ${{ env.QTDIR || env.QT_INSTALL_DIR || '' }}
+          # point to the Qt install (the jurplel action usually sets QT_INSTALL_DIR or QTDIR)
+          CMAKE_PREFIX_PATH: ${{ env.QTDIR || env.QT_INSTALL_DIR || 'D:\\a\\QmlMaterial\\Qt\\6.8.3\\msvc2022_64' }}
         run: |
-          # Create build directory (PowerShell)
+          # Ensure clang-cl is on PATH (choco llvm installs clang-cl to Program Files)
+          $llvmBin = 'C:\Program Files\LLVM\bin'
+          if (Test-Path $llvmBin) {
+            $env:PATH = "$llvmBin;$env:PATH"
+          }
+
+          # Resolve QTDIR (use env var if set)
+          $qtDir = $env:QTDIR
+          if (-not $qtDir) { $qtDir = $env:QT_INSTALL_DIR }
+          if (-not $qtDir) { $qtDir = 'D:\a\QmlMaterial\Qt\6.8.3\msvc2022_64' }
+          Write-Host "Using Qt dir: $qtDir"
+
+          # Ensure we use the MSVC-built Qt libs at runtime
+          $qtLib = Join-Path $qtDir 'lib'
+          $env:PATH = "$qtLib;$env:PATH"
+
+          # Create build dir
           New-Item -ItemType Directory -Force -Path build | Out-Null
 
-          # On Windows with the Ninja generator you must not pass -A x64 (Ninja doesn't accept platform).
-          # Instead, ensure the correct compiler is selected and pass compiler variables to CMake.
-          # Use PowerShell's call operator (&) to run cmake with arguments.
-          & cmake -S . -B build -G "Ninja" -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$env:CMAKE_PREFIX_PATH" -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
+          # Use clang-cl (MSVC-compatible) so the MSVC-built Qt works with Clang front-end.
+          # Do NOT pass -A x64 to Ninja generator; instead ensure the environment/compilers are correct.
+          $cmakeArgs = @(
+            '-S', '.',
+            '-B', 'build',
+            '-G', 'Ninja',
+            '-DCMAKE_BUILD_TYPE=Release',
+            "-DCMAKE_PREFIX_PATH=$env:CMAKE_PREFIX_PATH",
+            "-DQt6ShaderTools_DIR=$qtDir\lib\cmake\Qt6ShaderTools",
+            '-DCMAKE_C_COMPILER=clang-cl',
+            '-DCMAKE_CXX_COMPILER=clang-cl'
+          )
+
+          Write-Host "Running cmake with clang-cl..."
+          & cmake @cmakeArgs
         shell: powershell
 
       - name: Build (Linux / macOS, parallel)

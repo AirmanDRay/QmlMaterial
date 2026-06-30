@@ -40,11 +40,17 @@ jobs:
           brew install cmake ninja
         shell: bash
 
-      - name: Install system deps (Windows MSVC)
+      - name: Configure CMake (Windows MSVC)
         if: runner.os == 'Windows' && matrix.compiler == 'msvc'
+        env:
+          CMAKE_PREFIX_PATH: ${{ env.QTDIR || env.QT_INSTALL_DIR || '' }}
         run: |
-          choco install -y cmake --installargs 'ADD_CMAKE_TO_PATH=System'
-          choco install -y visualstudio2022-workload-vctools --ignore-checksums
+          # Create build directory
+          New-Item -ItemType Directory -Force -Path build | Out-Null
+
+          # Use Visual Studio generator so -A x64 is accepted and MSVC toolchain is used.
+          # This will generate MSBuild project files and respects -A x64.
+          & cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$env:CMAKE_PREFIX_PATH"
         shell: powershell
 
       - name: Install system deps (Windows MinGW)
@@ -52,8 +58,9 @@ jobs:
         run: |
           choco install -y msys2
           refreshenv
+          # Update MSYS2 and install mingw toolchain + cmake inside MSYS
           C:\msys64\usr\bin\bash -lc "pacman -Syu --noconfirm"
-          C:\msys64\usr\bin\bash -lc "pacman -S --noconfirm mingw-w64-x86_64-toolchain base-devel"
+          C:\msys64\usr\bin\bash -lc "pacman -S --noconfirm mingw-w64-x86_64-toolchain base-devel mingw-w64-x86_64-cmake"
         shell: powershell
 
       - name: Install system deps (Windows clang/LLVM)
@@ -61,6 +68,8 @@ jobs:
         run: |
           choco install -y llvm
           choco install -y cmake --installargs 'ADD_CMAKE_TO_PATH=System'
+          # Install a pkg-config shim so CMake can find PKG_CONFIG_EXECUTABLE
+          choco install -y pkgconfiglite
         shell: powershell
 
       - name: Install Qt 6.8.3 (jurplel action)

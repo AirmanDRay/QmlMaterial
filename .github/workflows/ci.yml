@@ -49,15 +49,16 @@ jobs:
           choco install -y pkgconfiglite
         shell: powershell
 
-      - name: Install system deps (Windows MinGW)
+      - name: Setup MSYS2 and Install Toolchain (Windows MinGW)
         if: runner.os == 'Windows' && matrix.compiler == 'mingw'
-        run: |
-          choco install -y msys2
-          refreshenv
-          # Update MSYS2 and install mingw toolchain + cmake inside MSYS
-          C:\msys64\usr\bin\bash -lc "pacman -Syu --noconfirm"
-          C:\msys64\usr\bin\bash -lc "pacman -S --noconfirm mingw-w64-x86_64-toolchain base-devel mingw-w64-x86_64-cmake"
-        shell: powershell
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-toolchain
+            base-devel
+            mingw-w64-x86_64-cmake
 
       - name: Install system deps (Windows clang/LLVM)
         if: runner.os == 'Windows' && matrix.compiler == 'clang'
@@ -175,25 +176,19 @@ jobs:
 
       - name: Configure CMake (Windows MinGW)
         if: runner.os == 'Windows' && matrix.compiler == 'mingw'
+        shell: msys2 {0}
         env:
           CMAKE_PREFIX_PATH: ${{ env.QTDIR || env.QT_INSTALL_DIR || '' }}
         run: |
-          # Run the configure inside MSYS2 bash; convert the Windows workspace path to POSIX with cygpath
-          C:/msys64/usr/bin/bash -lc "
-            set -e
-            export PATH=/mingw64/bin:/usr/bin:\$PATH
-            # Ensure pacman packages are present (safe no-op if already installed)
-            pacman -Syu --noconfirm || true
-            SRC=\$(cygpath -u '${{ github.workspace }}')
-            BUILD_DIR=\"\$SRC/build\"
-            mkdir -p \"\$BUILD_DIR\"
-            cmake -S \"\$SRC\" -B \"\$BUILD_DIR\" -G 'MSYS Makefiles' \
-              -DCMAKE_BUILD_TYPE=Release \
-              -DCMAKE_PREFIX_PATH='${CMAKE_PREFIX_PATH}' \
-              -DCMAKE_C_COMPILER=/mingw64/bin/gcc.exe \
-              -DCMAKE_CXX_COMPILER=/mingw64/bin/g++.exe
-          "
-        shell: powershell
+          # 'shell: msys2' natively handles path conversions for github.workspace
+          BUILD_DIR="${{ github.workspace }}/build"
+          mkdir -p "$BUILD_DIR"
+        
+          cmake -S "${{ github.workspace }}" -B "$BUILD_DIR" -G "MinGW Makefiles" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="${CMAKE_PREFIX_PATH}" \
+            -DCMAKE_C_COMPILER=gcc \
+            -DCMAKE_CXX_COMPILER=g++
 
       - name: Configure CMake (Windows clang)
         if: runner.os == 'Windows' && matrix.compiler == 'clang'
@@ -250,15 +245,10 @@ jobs:
 
       - name: Build (Windows MinGW)
         if: runner.os == 'Windows' && matrix.compiler == 'mingw'
+        shell: msys2 {0}
         run: |
-          # Build inside MSYS2 bash so /mingw64/bin is used and nproc works
-          C:/msys64/usr/bin/bash -lc "
-            set -e
-            export PATH=/mingw64/bin:/usr/bin:\$PATH
-            SRC=\$(cygpath -u '${{ github.workspace }}')
-            cmake --build \"\$SRC/build\" --config Release -- -j\$(nproc || echo 2)
-          "
-        shell: powershell
+          # Safe core detection using nproc, falling back to 2 if it fails
+          cmake --build "${{ github.workspace }}/build" --config Release -- -j$(nproc || echo 2)
 
       - name: Build (Windows, parallel)
         if: runner.os == 'Windows' && matrix.compiler != 'mingw'

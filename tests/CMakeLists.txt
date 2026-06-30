@@ -113,3 +113,14 @@ foreach(scene ${VISUAL_SCENES})
     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
   )
 endforeach()
+
+# Ensure visual tests use XCB + Mesa software rasterizer on Linux CI
+if (UNIX AND NOT APPLE)
+  get_property(all_tests GLOBAL PROPERTY TESTS)
+  foreach(t ${all_tests})
+    if (t MATCHES "^visual_")
+      set_tests_properties(${t} PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=xcb;LIBGL_ALWAYS_SOFTWARE=1")
+    endif()
+  endforeach()
+endif()
+

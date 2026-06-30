@@ -178,15 +178,28 @@ jobs:
         env:
           CMAKE_PREFIX_PATH: ${{ env.QTDIR || env.QT_INSTALL_DIR || '' }}
         run: |
-          # Ensure MSYS2 and MinGW cmake were installed by the previous step
+          $gw = "${env:GITHUB_WORKSPACE}"
+          if (-not $gw) {
+            Write-Error "GITHUB_WORKSPACE not set"
+            exit 1
+          }
+
+          # Run everything inside MSYS2 bash and convert the Windows path to a POSIX path with cygpath.
           C:/msys64/usr/bin/bash -lc "
             set -e
-            # Ensure the mingw toolchain is on PATH
+            # Convert the Windows GitHub workspace path to a POSIX path usable inside MSYS
+            src=\$(cygpath -u '$gw')
+            builddir=\"\$src/build\"
+            mkdir -p \"\$builddir\"
+
+            # Ensure mingw toolchain is on PATH
             export PATH=/mingw64/bin:/usr/bin:\$PATH
-            # Re-run pacman update if needed (safe no-op if already up-to-date)
+
+            # (Optional) ensure pacman packages are present; safe no-op if already installed
             pacman -Syu --noconfirm || true
-            # Configure using POSIX paths (works inside MSYS)
-            cmake -S /github/workspace -B /github/workspace/build -G 'MSYS Makefiles' \
+
+            # Configure using POSIX paths (this will find /mingw64/bin/g++ correctly)
+            cmake -S \"\$src\" -B \"\$builddir\" -G 'MSYS Makefiles' \
               -DCMAKE_BUILD_TYPE=Release \
               -DCMAKE_PREFIX_PATH='${CMAKE_PREFIX_PATH}' \
               -DCMAKE_C_COMPILER=/mingw64/bin/gcc \

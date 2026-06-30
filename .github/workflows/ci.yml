@@ -178,28 +178,16 @@ jobs:
         env:
           CMAKE_PREFIX_PATH: ${{ env.QTDIR || env.QT_INSTALL_DIR || '' }}
         run: |
-          $gw = "${env:GITHUB_WORKSPACE}"
-          if (-not $gw) {
-            Write-Error "GITHUB_WORKSPACE not set"
-            exit 1
-          }
-
-          # Run everything inside MSYS2 bash and convert the Windows path to a POSIX path with cygpath.
+          # Ensure MSYS2 and MinGW cmake were installed by the previous step
           C:/msys64/usr/bin/bash -lc "
             set -e
-            # Convert the Windows GitHub workspace path to a POSIX path usable inside MSYS
-            src=\$(cygpath -u '$gw')
-            builddir=\"\$src/build\"
-            mkdir -p \"\$builddir\"
-
-            # Ensure mingw toolchain is on PATH
+            # Ensure the mingw toolchain is on PATH
             export PATH=/mingw64/bin:/usr/bin:\$PATH
-
-            # (Optional) ensure pacman packages are present; safe no-op if already installed
+            # Re-run pacman update if needed (safe no-op if already up-to-date)
             pacman -Syu --noconfirm || true
-
-            # Configure using POSIX paths (this will find /mingw64/bin/g++ correctly)
-            cmake -S \"\$src\" -B \"\$builddir\" -G 'MSYS Makefiles' \
+            # Configure using POSIX paths (works inside MSYS)
+            WORKSPACE=\$(cygpath -u '${{ github.workspace }}')
+            cmake -S \"\$WORKSPACE\" -B \"\$WORKSPACE/build\" -G 'MSYS Makefiles' \
               -DCMAKE_BUILD_TYPE=Release \
               -DCMAKE_PREFIX_PATH='${CMAKE_PREFIX_PATH}' \
               -DCMAKE_C_COMPILER=/mingw64/bin/gcc \
@@ -260,8 +248,19 @@ jobs:
           cmake --build build --config Release --parallel $(nproc || echo 2)
         shell: bash
 
+      - name: Build (Windows MinGW)
+        if: runner.os == 'Windows' && matrix.compiler == 'mingw'
+        run: |
+          C:\msys64\usr\bin\bash -lc "
+            set -e
+            export PATH=/mingw64/bin:/usr/bin:\$PATH
+            WORKSPACE=\$(cygpath -u '${{ github.workspace }}')
+            cmake --build \"\$WORKSPACE/build\" --config Release --parallel \$(nproc)
+          "
+        shell: powershell
+
       - name: Build (Windows, parallel)
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && matrix.compiler != 'mingw'
         run: |
           # Locate vswhere
           $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'

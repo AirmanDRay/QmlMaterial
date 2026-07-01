@@ -37,10 +37,23 @@ MD.ItemDelegate {
     required property bool editing
 
     readonly property TableView tableView: TableView.view as TableView
-    readonly property bool rowHovered: hovered || ((TableView.view as MD.TableView)?.hoveredRow ?? -1) === row
+    // Qt 6.8 compatibility note: cast to QtObject here, not MD.TableView.
+    // MD.TableView (TableView.qml) is a composite, QML-file-defined type
+    // in this same module, and its own `delegate: MD.TableViewDelegate {}`
+    // already makes MD.TableView structurally depend on THIS file. Casting
+    // back to the in-module MD.TableView type here would close that loop,
+    // and the QML type loader detects it as a cycle at load time --
+    // reported as "qt.qml.typeresolution.cycle" and, downstream, "Type
+    // MD.TableView unavailable". QtObject is a foundational QtQml type
+    // outside this module, so it carries no such dependency.
+    // hoveredRow/effectiveRadius/hasHeader below still resolve correctly
+    // via ordinary dynamic property lookup on the real MD.TableView
+    // instance at runtime -- only static type-checking of these accesses
+    // is given up, not the values themselves.
+    readonly property QtObject mdTableView: TableView.view as QtObject
+    readonly property bool rowHovered: hovered || (mdTableView?.hoveredRow ?? -1) === row
     property int rows: TableView.view?.rows ?? 0
     property int columns: TableView.view?.columns ?? 0
-    readonly property MD.TableView mdTableView: TableView.view as MD.TableView
     property MD.StateTableViewDelegate mdState: MD.StateTableViewDelegate {
         item: control
     }

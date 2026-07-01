@@ -51,7 +51,14 @@ MD.ItemDelegate {
             return headerColumns;
         return control.headerView?.syncView?.columns ?? 0;
     }
-    readonly property int radius: (control.headerView?.syncView as MD.TableView)?.effectiveRadius ?? 0
+    // Qt 6.8 compatibility note: cast to QtObject, not MD.TableView -- see
+    // TableViewDelegate.qml for the full explanation. This particular
+    // occurrence doesn't currently trigger a reported cycle, since
+    // TableView.qml has no dependency path back to this file, but it's
+    // the identical risky pattern (an in-module composite-type cast), so
+    // it's fixed the same way here for consistency and to avoid a latent
+    // bug resurfacing later if that ever changes.
+    readonly property int radius: (control.headerView?.syncView as QtObject)?.effectiveRadius ?? 0
     readonly property MD.corners corners: MD.Util.corners(section === 0 ? radius : 0, section + 1 === columns ? radius : 0, 0, 0)
     readonly property var displayText: {
         if (control.model === undefined || control.model === null)

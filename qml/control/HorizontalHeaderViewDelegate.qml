@@ -3,7 +3,25 @@ import QtQuick
 import QtQuick.Templates as T
 import Qcm.Material as MD
 
-T.HeaderViewDelegate {
+// Qt 6.8 compatibility note:
+// T.HeaderViewDelegate was only added in Qt 6.10. MD.ItemDelegate (this
+// module's own thin wrapper around T.ItemDelegate) is used as the base
+// instead, so this also inherits its implicitWidth/implicitHeight
+// formula rather than redeclaring one.
+//
+// Reconstructed by hand:
+//   - row / column / model / selected: the standard TableView
+//     "required property" convention. HorizontalHeaderView is itself
+//     built on TableView under the hood, so declaring `required
+//     property bool selected` here keeps it genuinely synced with the
+//     syncView's selectionModel, exactly as T.HeaderViewDelegate would
+//     — this sync has never been gated behind 6.10, TableView has
+//     supported it since 6.2.
+//   - headerView: recovered via the TableView.view attached property
+//     (available since Qt 5.14), cast to T.HorizontalHeaderView — which,
+//     unlike plain TableView, genuinely is a QtQuick.Templates type as
+//     of Qt 6.8 (see HorizontalHeaderView.qml in this module).
+MD.ItemDelegate {
     id: control
 
     leftPadding: 16
@@ -13,6 +31,10 @@ T.HeaderViewDelegate {
 
     required property int column
     required property int row
+    required property var model
+    required property bool selected
+
+    readonly property T.HorizontalHeaderView headerView: TableView.view as T.HorizontalHeaderView
     readonly property int section: Math.max(row, column)
     readonly property string textRole: control.headerView?.textRole ?? ""
     readonly property int columns: {
@@ -43,8 +65,6 @@ T.HeaderViewDelegate {
         return control.model;
     }
     highlighted: control.selected
-    implicitWidth: Math.max(implicitBackgroundWidth + leftInset + rightInset, implicitContentWidth + leftPadding + rightPadding)
-    implicitHeight: Math.max(implicitBackgroundHeight + topInset + bottomInset, implicitContentHeight + topPadding + bottomPadding)
 
     background: MD.Rectangle {
         implicitWidth: 64

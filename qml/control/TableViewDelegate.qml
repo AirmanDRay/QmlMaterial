@@ -3,11 +3,26 @@ import QtQuick
 import QtQuick.Templates as T
 import Qcm.Material as MD
 
-T.TableViewDelegate {
+// Qt 6.8 compatibility note:
+// T.TableViewDelegate was only added in Qt 6.10. MD.ItemDelegate (this
+// module's own thin wrapper around T.ItemDelegate, available since long
+// before 6.8 — see ItemDelegate.qml) is used as the base instead, so
+// this also inherits its implicitWidth/implicitHeight formula rather
+// than redeclaring one.
+//
+// Everything T.TableViewDelegate would have supplied automatically is
+// reconstructed by hand below:
+//   - row / column / model: the standard "required property" convention
+//     any TableView delegate can opt into, regardless of base type.
+//   - selected / current / editing: same convention. TableView has kept
+//     these in sync with its selectionModel for ANY delegate that
+//     declares them as required properties since Qt 6.2/6.4 — this was
+//     never gated behind T.TableViewDelegate, which just declares them
+//     for you as a convenience. Genuine sync, not a stand-in.
+//   - tableView: recovered via the TableView.view attached property
+//     (available since Qt 5.14).
+MD.ItemDelegate {
     id: control
-
-    implicitWidth: Math.max(implicitBackgroundWidth + leftInset + rightInset, implicitContentWidth + leftPadding + rightPadding)
-    implicitHeight: Math.max(implicitBackgroundHeight + topInset + bottomInset, implicitContentHeight + topPadding + bottomPadding)
 
     leftPadding: 16
     rightPadding: 16
@@ -17,6 +32,11 @@ T.TableViewDelegate {
     required property int column
     required property int row
     required property var model
+    required property bool selected
+    required property bool current
+    required property bool editing
+
+    readonly property TableView tableView: TableView.view as TableView
     readonly property bool rowHovered: hovered || ((TableView.view as MD.TableView)?.hoveredRow ?? -1) === row
     property int rows: TableView.view?.rows ?? 0
     property int columns: TableView.view?.columns ?? 0

@@ -5,7 +5,15 @@ import Qcm.Material as MD
 MD.MState {
     id: root
 
-    required property T.TableViewDelegate item
+    // Qt 6.8 compatibility note: T.TableViewDelegate was only added in
+    // Qt 6.10. TableViewDelegate.qml (the only place `item` is ever
+    // assigned) is based on T.ItemDelegate now, so this type is loosened
+    // to match. This file has no `pragma ComponentBehavior: Bound`, so
+    // the extra properties read off `item` below (selected, rowHovered,
+    // etc.) resolve dynamically against the actual instance at runtime
+    // rather than being statically checked against this declared type
+    // -- nothing else here needs to change.
+    required property T.ItemDelegate item
 
     elevation: MD.Token.elevation.level0
     readonly property bool selected: item.selected || item.highlighted

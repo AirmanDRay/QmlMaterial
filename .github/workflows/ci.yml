@@ -12,7 +12,7 @@ jobs:
             compiler: gcc
           - runner: ubuntu-latest
             compiler: clang
-          - runner: macos-latest 
+          - runner: macos-15
             compiler: xcode
           - runner: windows-latest
             compiler: msvc
@@ -51,21 +51,36 @@ jobs:
 
       - name: Install MinGW Qt components (MSYS2)
         if: runner.os == 'Windows' && matrix.compiler == 'mingw'
+        # Custom shell: hands bash a real script FILE, not a string
+        # embedded in a PowerShell command line. This is the actual fix.
+        # The previous `bash -lc "...\$...\"..."` form required
+        # PowerShell to parse bash syntax first -- and PowerShell's
+        # quoting rules are incompatible with it: backslash isn't an
+        # escape character, so \" doesn't escape a quote, it just closes
+        # the PowerShell string early (which is exactly what produced
+        # "unexpected EOF while looking for matching \"" -- bash received
+        # a truncated fragment). Passing the script as a bare file
+        # argument here means PowerShell never parses its contents at
+        # all, so none of that applies.
+        shell: 'C:\msys64\usr\bin\bash.exe -l "{0}"'
+        env:
+          CHERE_INVOKING: yes # stay in the job's working directory instead of cd-ing to $HOME on login
         run: |
-            C:/msys64/usr/bin/bash -lc "
-            set -e
-            pacman -Syu --noconfirm || true
-            pacman -Ss '^mingw-w64-x86_64-qt6' | sed -n '1,200p'
-            pacman -S --noconfirm --needed \
-                mingw-w64-x86_64-toolchain \
-                base-devel \
-                mingw-w64-x86_64-cmake \
-                mingw-w64-x86_64-qt6-base \
-                mingw-w64-x86_64-qt6-declarative \
-                mingw-w64-x86_64-qt6-shadertools \
-                mingw-w64-x86_64-qt6-tools
-            "
-        shell: powershell
+          set -e
+          pacman -Sy --noconfirm
+          pacman -S --noconfirm --needed \
+            mingw-w64-x86_64-toolchain \
+            mingw-w64-x86_64-cmake \
+            mingw-w64-x86_64-ninja \
+            mingw-w64-x86_64-qt6-base \
+            mingw-w64-x86_64-qt6-declarative \
+            mingw-w64-x86_64-qt6-shadertools \
+            mingw-w64-x86_64-qt6-tools
+          # Put MinGW's runtime DLLs (libgcc/libstdc++/libwinpthread) on
+          # PATH for every later step in this job, including "Run tests"
+          # -- which runs under Git Bash, a different bash than this one
+          # -- so the compiled test executables can actually launch.
+          echo "C:\\msys64\\mingw64\\bin" >> "$GITHUB_PATH"
 
       - name: Install system deps (Windows clang/LLVM)
         if: runner.os == 'Windows' && matrix.compiler == 'clang'
@@ -77,11 +92,12 @@ jobs:
         shell: powershell
 
       - name: Install Qt 6.8.3 (jurplel action)
+        if: matrix.compiler != 'mingw'
         id: install_qt
         uses: jurplel/install-qt-action@v4
         with:
           version: '6.8.3'
-          host: ${{ matrix.runner == 'macos-latest' && 'mac' || matrix.runner == 'windows-latest' && 'windows' || 'linux' }}
+          host: ${{ runner.os == 'macOS' && 'mac' || runner.os == 'Windows' && 'windows' || 'linux' }}
           modules: 'qtshadertools'
 
       - name: Show Qt info (debug)
@@ -183,21 +199,21 @@ jobs:
 
       - name: Configure CMake (Windows MinGW)
         if: runner.os == 'Windows' && matrix.compiler == 'mingw'
+        shell: 'C:\msys64\usr\bin\bash.exe -l "{0}"'
+        env:
+          CHERE_INVOKING: yes
         run: |
-            C:/msys64/usr/bin/bash -lc "
-            set -e
-            export PATH=/mingw64/bin:/usr/bin:\$PATH
-            SRC=\$(cygpath -u '${{ github.workspace }}')
-            rm -rf \"\$SRC/build\"
-            mkdir -p \"\$SRC/build\"
-            cmake -S \"\$SRC\" -B \"\$SRC/build\" -G 'MinGW Makefiles' \
-                -DCMAKE_BUILD_TYPE=Release \
-                -DCMAKE_PREFIX_PATH=/mingw64 \
-                -DQt6_DIR=/mingw64/lib/cmake/Qt6 \
-                -DCMAKE_C_COMPILER=/mingw64/bin/gcc.exe \
-                -DCMAKE_CXX_COMPILER=/mingw64/bin/g++.exe
-            "
-        shell: powershell
+          set -e
+          export PATH=/mingw64/bin:/usr/bin:$PATH
+          SRC=$(cygpath -u '${{ github.workspace }}')
+          rm -rf "$SRC/build"
+          cmake -S "$SRC" -B "$SRC/build" -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH=/mingw64 \
+            -DQt6_DIR=/mingw64/lib/cmake/Qt6 \
+            -DQt6ShaderTools_DIR=/mingw64/lib/cmake/Qt6ShaderTools \
+            -DCMAKE_C_COMPILER=/mingw64/bin/gcc.exe \
+            -DCMAKE_CXX_COMPILER=/mingw64/bin/g++.exe
             
       - name: Configure CMake (Windows clang)
         if: runner.os == 'Windows' && matrix.compiler == 'clang'
@@ -254,14 +270,14 @@ jobs:
 
       - name: Build (Windows MinGW)
         if: runner.os == 'Windows' && matrix.compiler == 'mingw'
+        shell: 'C:\msys64\usr\bin\bash.exe -l "{0}"'
+        env:
+          CHERE_INVOKING: yes
         run: |
-            C:/msys64/usr/bin/bash -lc "
-            set -e
-            export PATH=/mingw64/bin:/usr/bin:\$PATH
-            SRC=\$(cygpath -u '${{ github.workspace }}')
-            cmake --build \"\$SRC/build\" --config Release -- -j\$(nproc || echo 2)
-            "
-        shell: powershell
+          set -e
+          export PATH=/mingw64/bin:/usr/bin:$PATH
+          SRC=$(cygpath -u '${{ github.workspace }}')
+          cmake --build "$SRC/build" --parallel $(nproc || echo 2)
 
       - name: Build (Windows, parallel)
         if: runner.os == 'Windows' && matrix.compiler != 'mingw'

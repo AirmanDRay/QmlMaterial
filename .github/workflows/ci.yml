@@ -72,6 +72,11 @@ jobs:
           choco install -y pkgconfiglite
         shell: powershell
 
+      - name: Install system deps (Windows MinGW)
+        if: runner.os == 'Windows' && matrix.compiler == 'mingw'
+        run: choco install -y pkgconfiglite
+        shell: powershell
+
       - name: Install Qt 6.8.3 (jurplel action)
         if: matrix.compiler != 'mingw'
         id: install_qt
@@ -349,4 +354,3 @@ jobs:
         with:
           name: ctest-logs-${{ matrix.runner }}-${{ matrix.compiler }}
           path: build/Testing
-          

@@ -25,6 +25,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # ccache: covers gcc / Linux clang / xcode / mingw. MSVC and
+      # Windows clang-cl are deliberately excluded -- ccache needs
+      # CMAKE_*_FLAGS surgery (/Zi -> /Z7, disabling PCH) to get any
+      # cache hits at all under MSVC, and those two jobs already carry
+      # the most fragile scripting in this file (VsDevCmd.bat + nested
+      # quoting). Not worth stacking more risk there for this pass.
+      - name: Set up ccache
+        if: matrix.compiler == 'gcc' || matrix.compiler == 'mingw' || matrix.compiler == 'xcode' || (matrix.compiler == 'clang' && runner.os == 'Linux')
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: ccache-${{ matrix.runner }}-${{ matrix.compiler }}
+
       - name: Install system deps (Linux)
         if: runner.os == 'Linux'
         run: |
@@ -33,60 +45,84 @@ jobs:
           if [ "${{ matrix.compiler }}" = "clang" ]; then sudo apt-get install -y clang; fi
         shell: bash
 
-      - name: Install system deps (macOS)
-        if: runner.os == 'macOS'
-        run: |
-          brew update
-          brew install cmake ninja
-        shell: bash
+      # macOS runner images already ship CMake and Ninja -- see
+      # actions/runner-images macos-15-Readme.md. brew update/install
+      # here was pure overhead (brew update alone can take 30s-2min).
 
       - name: Install system deps (Windows MSVC)
         if: runner.os == 'Windows' && matrix.compiler == 'msvc'
         run: |
-          choco install -y cmake --installargs 'ADD_CMAKE_TO_PATH=System'
-          choco install -y visualstudio2022-workload-vctools --ignore-checksums
-          # Provide pkg-config for CMake FindPkgConfig
+          # NOTE: cmake and the VC++ workload are already preinstalled
+          # on windows-latest (full VS2022 Enterprise ships by default,
+          # confirmed via actions/runner-images). The old
+          # visualstudio2022-workload-vctools choco install was pure
+          # dead weight -- historically minutes of the slowest part of
+          # this whole file for zero benefit. pkg-config is not
+          # preinstalled, so that one stays.
           choco install -y pkgconfiglite
         shell: powershell
 
-      - name: Install MinGW Qt components (MSYS2)
+      - name: Cache MSYS2 MinGW64 prefix
         if: runner.os == 'Windows' && matrix.compiler == 'mingw'
+        id: cache-mingw64
+        uses: actions/cache@v4
+        with:
+          path: C:\msys64\mingw64
+          # Bump the -v1 suffix by hand whenever the pinned Qt package
+          # URLs (or the pacman package list) below change, so a stale
+          # cache doesn't silently mask the update.
+          key: mingw64-qt-6.8.3-v1
+
+      - name: Install MinGW Qt components (MSYS2)
+        if: runner.os == 'Windows' && matrix.compiler == 'mingw' && steps.cache-mingw64.outputs.cache-hit != 'true'
         # Custom shell: hands bash a real script FILE, not a string
-        # embedded in a PowerShell command line. This is the actual fix.
-        # The previous `bash -lc "...\$...\"..."` form required
-        # PowerShell to parse bash syntax first -- and PowerShell's
-        # quoting rules are incompatible with it: backslash isn't an
-        # escape character, so \" doesn't escape a quote, it just closes
-        # the PowerShell string early (which is exactly what produced
-        # "unexpected EOF while looking for matching \"" -- bash received
-        # a truncated fragment). Passing the script as a bare file
-        # argument here means PowerShell never parses its contents at
-        # all, so none of that applies.
+        # embedded in a PowerShell command line -- see prior history in
+        # this file's commit log for why the naive `bash -lc "..."`
+        # form is broken.
         shell: 'C:\msys64\usr\bin\bash.exe -l "{0}"'
         env:
-          CHERE_INVOKING: yes # stay in the job's working directory instead of cd-ing to $HOME on login
+          CHERE_INVOKING: yes
         run: |
           set -e
           pacman -Sy --noconfirm
-          # Toolchain/cmake/ninja: no version coupling to Qt, latest is fine
+          # Toolchain/cmake/ninja: no version coupling to Qt, latest is fine.
           pacman -S --noconfirm --needed \
             mingw-w64-x86_64-toolchain \
             mingw-w64-x86_64-cmake \
             mingw-w64-x86_64-ninja
-          # Qt modules: must all be the same pinned version -- find exact
-          # filenames at https://mirror.msys2.org/mingw/mingw64/ first
+          # Qt modules: must all be the SAME pinned version -- plain
+          # `pacman -S` always pulls whatever's newest (which is how we
+          # ended up with 6.11.1 instead of 6.8.3 before). Installing
+          # from exact package files via `-U` pins them precisely.
+          # IMPORTANT: verify these exact filenames/pkgrel numbers
+          # against https://mirror.msys2.org/mingw/mingw64/ before
+          # relying on this -- MSYS2 only guarantees retaining a
+          # superseded build for ~1.75 years, and I have not confirmed
+          # these specific URLs resolve.
           pacman -U --noconfirm \
             'https://mirror.msys2.org/mingw/mingw64/mingw-w64-x86_64-qt6-base-6.8.3-1-any.pkg.tar.zst' \
             'https://mirror.msys2.org/mingw/mingw64/mingw-w64-x86_64-qt6-declarative-6.8.3-1-any.pkg.tar.zst' \
             'https://mirror.msys2.org/mingw/mingw64/mingw-w64-x86_64-qt6-shadertools-6.8.3-1-any.pkg.tar.zst' \
             'https://mirror.msys2.org/mingw/mingw64/mingw-w64-x86_64-qt6-tools-6.8.3-1-any.pkg.tar.zst'
 
+      - name: Add MinGW64 bin to PATH
+        # Deliberately its own step, unconditional on cache hit/miss:
+        # this needs to run every time, including when the install step
+        # above is skipped on a cache hit, since later steps (Run tests,
+        # which uses a different bash than this one) need mingw64/bin on
+        # PATH to find the MinGW runtime DLLs when launching compiled
+        # test executables.
+        if: runner.os == 'Windows' && matrix.compiler == 'mingw'
+        shell: bash
+        run: echo "C:\\msys64\\mingw64\\bin" >> "$GITHUB_PATH"
+
       - name: Install system deps (Windows clang/LLVM)
         if: runner.os == 'Windows' && matrix.compiler == 'clang'
         run: |
+          # NOTE: cmake is already preinstalled on windows-latest (see
+          # the MSVC step above), so only llvm and pkg-config are
+          # installed here now.
           choco install -y llvm
-          choco install -y cmake --installargs 'ADD_CMAKE_TO_PATH=System'
-          # Install a pkg-config shim so CMake can find PKG_CONFIG_EXECUTABLE
           choco install -y pkgconfiglite
         shell: powershell
 
@@ -98,6 +134,7 @@ jobs:
           version: '6.8.3'
           host: ${{ runner.os == 'macOS' && 'mac' || runner.os == 'Windows' && 'windows' || 'linux' }}
           modules: 'qtshadertools'
+          cache: true
 
       - name: Show Qt info (debug)
         run: |
@@ -147,17 +184,23 @@ jobs:
               CC=clang CXX=clang++ cmake -S . -B build -G Ninja \
                 -DCMAKE_BUILD_TYPE=Release \
                 -DCMAKE_PREFIX_PATH="${CMAKE_PREFIX_PATH}" \
-                -DQt6ShaderTools_DIR="${QTDIR}/lib/cmake/Qt6ShaderTools"
+                -DQt6ShaderTools_DIR="${QTDIR}/lib/cmake/Qt6ShaderTools" \
+                -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+                -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
             else
               CC=gcc CXX=g++ cmake -S . -B build -G Ninja \
                 -DCMAKE_BUILD_TYPE=Release \
                 -DCMAKE_PREFIX_PATH="${CMAKE_PREFIX_PATH}" \
-                -DQt6ShaderTools_DIR="${QTDIR}/lib/cmake/Qt6ShaderTools"
+                -DQt6ShaderTools_DIR="${QTDIR}/lib/cmake/Qt6ShaderTools" \
+                -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+                -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
             fi
           else
             cmake -S . -B build -G Ninja \
               -DCMAKE_BUILD_TYPE=Release \
-              -DCMAKE_PREFIX_PATH="${CMAKE_PREFIX_PATH}"
+              -DCMAKE_PREFIX_PATH="${CMAKE_PREFIX_PATH}" \
+              -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+              -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
           fi
         shell: bash
 
@@ -212,8 +255,10 @@ jobs:
             -DQt6_DIR=/mingw64/lib/cmake/Qt6 \
             -DQt6ShaderTools_DIR=/mingw64/lib/cmake/Qt6ShaderTools \
             -DCMAKE_C_COMPILER=/mingw64/bin/gcc.exe \
-            -DCMAKE_CXX_COMPILER=/mingw64/bin/g++.exe
-            
+            -DCMAKE_CXX_COMPILER=/mingw64/bin/g++.exe \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+
       - name: Configure CMake (Windows clang)
         if: runner.os == 'Windows' && matrix.compiler == 'clang'
         env:

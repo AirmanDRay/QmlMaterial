@@ -48,9 +48,7 @@ endif()
 
 find_package(Qt6 REQUIRED COMPONENTS Core Quick QuickControls2 Gui ShaderTools)
 
-if(UNIX
-   AND NOT ANDROID
-   AND NOT EMSCRIPTEN)
+if(UNIX AND NOT ANDROID AND NOT EMSCRIPTEN)
   find_package(Qt6 REQUIRED COMPONENTS DBus)
 endif()
 
@@ -386,13 +384,10 @@ else()
       list(APPEND SHADER_DEFINES "GLES=1")
       list(APPEND SOURCES src/dialog/file_dialog_stub.cpp)
     else()
-      list(
-        APPEND
-        SOURCES
-        src/platform/linux/xdp.cpp
-        src/platform/linux/file_dialog_xdp.cpp
-        src/platform/linux/file_dialog_xdp.hpp
-        src/platform/linux/open_uri_xdp.cpp)
+      list(APPEND SOURCES src/platform/linux/xdp.cpp
+           src/platform/linux/file_dialog_xdp.cpp
+           src/platform/linux/file_dialog_xdp.hpp
+           src/platform/linux/open_uri_xdp.cpp)
     endif()
   elseif(WIN32)
     set(QM_ICON_FILL_0_FONT_FILE
@@ -445,10 +440,6 @@ target_sources("${LIBNAME}plugin" PRIVATE src/plugin.cpp)
 
 target_compile_features(${LIBNAME} PRIVATE cxx_std_20)
 target_compile_definitions(${LIBNAME} PRIVATE QML_MATERIAL_EXPORT)
-# PUBLIC, not PRIVATE: qml_materialplugin (src/plugin.cpp) and any other
-# consumer needs to see this too, not just qml_material's own sources -- see
-# export.hpp for why. This must stay in sync with QML_MATERIAL_BUILD_TYPE above
-# (STATIC on Windows/Emscripten, SHARED by default elsewhere).
 if(QML_MATERIAL_BUILD_TYPE MATCHES STATIC)
   target_compile_definitions(${LIBNAME} PUBLIC QML_MATERIAL_STATIC_DEFINE)
 endif()
@@ -533,9 +524,7 @@ target_link_libraries(
          Qt6::QuickPrivate # QQuickStateGroup
   PRIVATE material_color)
 
-if(UNIX
-   AND NOT ANDROID
-   AND NOT EMSCRIPTEN)
+if(UNIX AND NOT ANDROID AND NOT EMSCRIPTEN)
   target_link_libraries(${LIBNAME} PRIVATE Qt6::DBus)
 endif()
 

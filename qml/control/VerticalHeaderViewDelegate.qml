@@ -3,10 +3,6 @@ import QtQuick
 import QtQuick.Templates as T
 import Qcm.Material as MD
 
-// Qt 6.8 compatibility note: see HorizontalHeaderViewDelegate.qml for
-// the full explanation -- same reconstruction applies here, mirrored
-// for rows instead of columns. T.VerticalHeaderView is the row-oriented
-// counterpart, also a genuine QtQuick.Templates type since Qt 6.8.
 MD.ItemDelegate {
     id: control
 

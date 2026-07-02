@@ -3,24 +3,6 @@ import QtQuick
 import QtQuick.Templates as T
 import Qcm.Material as MD
 
-// Qt 6.8 compatibility note:
-// T.TableViewDelegate was only added in Qt 6.10. MD.ItemDelegate (this
-// module's own thin wrapper around T.ItemDelegate, available since long
-// before 6.8 — see ItemDelegate.qml) is used as the base instead, so
-// this also inherits its implicitWidth/implicitHeight formula rather
-// than redeclaring one.
-//
-// Everything T.TableViewDelegate would have supplied automatically is
-// reconstructed by hand below:
-//   - row / column / model: the standard "required property" convention
-//     any TableView delegate can opt into, regardless of base type.
-//   - selected / current / editing: same convention. TableView has kept
-//     these in sync with its selectionModel for ANY delegate that
-//     declares them as required properties since Qt 6.2/6.4 — this was
-//     never gated behind T.TableViewDelegate, which just declares them
-//     for you as a convenience. Genuine sync, not a stand-in.
-//   - tableView: recovered via the TableView.view attached property
-//     (available since Qt 5.14).
 MD.ItemDelegate {
     id: control
 
@@ -37,19 +19,6 @@ MD.ItemDelegate {
     required property bool editing
 
     readonly property TableView tableView: TableView.view as TableView
-    // Qt 6.8 compatibility note: cast to QtObject here, not MD.TableView.
-    // MD.TableView (TableView.qml) is a composite, QML-file-defined type
-    // in this same module, and its own `delegate: MD.TableViewDelegate {}`
-    // already makes MD.TableView structurally depend on THIS file. Casting
-    // back to the in-module MD.TableView type here would close that loop,
-    // and the QML type loader detects it as a cycle at load time --
-    // reported as "qt.qml.typeresolution.cycle" and, downstream, "Type
-    // MD.TableView unavailable". QtObject is a foundational QtQml type
-    // outside this module, so it carries no such dependency.
-    // hoveredRow/effectiveRadius/hasHeader below still resolve correctly
-    // via ordinary dynamic property lookup on the real MD.TableView
-    // instance at runtime -- only static type-checking of these accesses
-    // is given up, not the values themselves.
     readonly property QtObject mdTableView: TableView.view as QtObject
     readonly property bool rowHovered: hovered || (mdTableView?.hoveredRow ?? -1) === row
     property int rows: TableView.view?.rows ?? 0

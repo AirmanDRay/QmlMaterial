@@ -88,8 +88,9 @@ jobs:
 
       - name: Show Qt info (debug)
         run: |
-          echo "QTDIR=${QTDIR:-$QT_INSTALL_DIR}"
-          ls -la "${QTDIR:-$QT_INSTALL_DIR}/lib/cmake" || true
+          QTDIR="${QT_ROOT_DIR:-${QTDIR:-$QT_INSTALL_DIR}}"
+          echo "QTDIR=${QTDIR}"
+          ls -la "${QTDIR}/lib/cmake" || true
         shell: bash
 
       - name: Verify ShaderTools in Qt tree (Linux)
@@ -112,7 +113,7 @@ jobs:
         env:
           CMAKE_PREFIX_PATH: ${{ env.QTDIR || env.QT_INSTALL_DIR || '' }}:/usr/lib/x86_64-linux-gnu/cmake
         run: |
-          QTDIR="${QTDIR:-${QT_INSTALL_DIR:-/opt/Qt/6.8.3}}"
+          QTDIR="${QT_ROOT_DIR:-${QTDIR:-${QT_INSTALL_DIR:-/opt/Qt/6.8.3}}}"
           if [ -d "${QTDIR}/gcc_64/bin" ]; then
             QT_BIN="${QTDIR}/gcc_64/bin"; QT_LIB="${QTDIR}/gcc_64/lib"
           else
@@ -155,13 +156,15 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path build | Out-Null
 
-          # Read $env:QTDIR directly: ${{ env.QTDIR }} can't see vars a
-          # prior step exported via $GITHUB_ENV (GH env-context rule).
-          # No fabricated fallback: an empty value means the Qt install
-          # step failed, and we want a loud error, not a guessed path.
-          $qtDir = $env:QTDIR
+          # jurplel/install-qt-action v4 exports QT_ROOT_DIR (the real
+          # one); QTDIR/QT_INSTALL_DIR are legacy fallbacks. Read
+          # $env:* directly, not ${{ env.* }}, which can't see vars a
+          # prior step set via $GITHUB_ENV. Empty after all three means
+          # the Qt install step failed -> loud error, not a guess.
+          $qtDir = $env:QT_ROOT_DIR
+          if (-not $qtDir) { $qtDir = $env:QTDIR }
           if (-not $qtDir) { $qtDir = $env:QT_INSTALL_DIR }
-          if (-not $qtDir) { Write-Error "QTDIR/QT_INSTALL_DIR not set - Qt install step likely failed."; exit 1 }
+          if (-not $qtDir) { Write-Error "QT_ROOT_DIR not set - Qt install step likely failed."; exit 1 }
           Write-Host "Using Qt dir: $qtDir"
 
           $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
@@ -185,7 +188,7 @@ jobs:
         shell: bash
         run: |
           set -e
-          QTDIR="${QTDIR:-$QT_INSTALL_DIR}"
+          QTDIR="${QT_ROOT_DIR:-${QTDIR:-$QT_INSTALL_DIR}}"
           echo "Using QTDIR=${QTDIR}"
           gcc --version || true
           rm -rf build
@@ -202,13 +205,15 @@ jobs:
           $llvmBin = 'C:\Program Files\LLVM\bin'
           if (Test-Path $llvmBin) { $env:PATH = "$llvmBin;$env:PATH" }
 
-          # Read $env:QTDIR directly: ${{ env.QTDIR }} can't see vars a
-          # prior step exported via $GITHUB_ENV (GH env-context rule).
-          # No fabricated fallback: an empty value means the Qt install
-          # step failed, and we want a loud error, not a guessed path.
-          $qtDir = $env:QTDIR
+          # jurplel/install-qt-action v4 exports QT_ROOT_DIR (the real
+          # one); QTDIR/QT_INSTALL_DIR are legacy fallbacks. Read
+          # $env:* directly, not ${{ env.* }}, which can't see vars a
+          # prior step set via $GITHUB_ENV. Empty after all three means
+          # the Qt install step failed -> loud error, not a guess.
+          $qtDir = $env:QT_ROOT_DIR
+          if (-not $qtDir) { $qtDir = $env:QTDIR }
           if (-not $qtDir) { $qtDir = $env:QT_INSTALL_DIR }
-          if (-not $qtDir) { Write-Error "QTDIR/QT_INSTALL_DIR not set - Qt install step likely failed."; exit 1 }
+          if (-not $qtDir) { Write-Error "QT_ROOT_DIR not set - Qt install step likely failed."; exit 1 }
           Write-Host "Using Qt dir: $qtDir"
           $env:PATH = "$(Join-Path $qtDir 'lib');$env:PATH"
 
@@ -234,7 +239,7 @@ jobs:
       - name: Build (Linux / macOS, parallel)
         if: runner.os != 'Windows'
         run: |
-          QTDIR="${QTDIR:-${QT_INSTALL_DIR:-/opt/Qt/6.8.3}}"
+          QTDIR="${QT_ROOT_DIR:-${QTDIR:-${QT_INSTALL_DIR:-/opt/Qt/6.8.3}}}"
           if [ -d "${QTDIR}/gcc_64/bin" ]; then
             QT_BIN="${QTDIR}/gcc_64/bin"; QT_LIB="${QTDIR}/gcc_64/lib"
           else

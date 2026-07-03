@@ -1,4 +1,4 @@
-name: CI — Qt 6.8.3 multi-compiler build & tests
+name: CI - Qt 6.8.3 multi-compiler build & tests
 on: [push, pull_request]
 
 jobs:
@@ -161,7 +161,7 @@ jobs:
           # step failed, and we want a loud error, not a guessed path.
           $qtDir = $env:QTDIR
           if (-not $qtDir) { $qtDir = $env:QT_INSTALL_DIR }
-          if (-not $qtDir) { Write-Error "QTDIR/QT_INSTALL_DIR not set — Qt install step likely failed."; exit 1 }
+          if (-not $qtDir) { Write-Error "QTDIR/QT_INSTALL_DIR not set - Qt install step likely failed."; exit 1 }
           Write-Host "Using Qt dir: $qtDir"
 
           $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
@@ -208,7 +208,7 @@ jobs:
           # step failed, and we want a loud error, not a guessed path.
           $qtDir = $env:QTDIR
           if (-not $qtDir) { $qtDir = $env:QT_INSTALL_DIR }
-          if (-not $qtDir) { Write-Error "QTDIR/QT_INSTALL_DIR not set — Qt install step likely failed."; exit 1 }
+          if (-not $qtDir) { Write-Error "QTDIR/QT_INSTALL_DIR not set - Qt install step likely failed."; exit 1 }
           Write-Host "Using Qt dir: $qtDir"
           $env:PATH = "$(Join-Path $qtDir 'lib');$env:PATH"
 

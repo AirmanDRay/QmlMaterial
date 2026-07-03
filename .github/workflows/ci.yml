@@ -8,18 +8,32 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: ubuntu-latest
+          # Runner versions are pinned rather than -latest. This isn't
+          # theoretical: windows-latest silently migrated to Windows
+          # Server 2025 / VS2026 in mid-June 2026, and macos-latest
+          # broke this exact pipeline via an Xcode 26 change (see
+          # QTBUG-137687 in this file's history) before it was pinned
+          # to macos-15. Pinned to whatever -latest currently resolves
+          # to, not an older "safe" version -- these are the images
+          # this pipeline is actually validated against.
+          - runner: ubuntu-24.04
             compiler: gcc
-          - runner: ubuntu-latest
+            ccache: true
+          - runner: ubuntu-24.04
             compiler: clang
+            ccache: true
           - runner: macos-15
             compiler: xcode
-          - runner: windows-latest
+            ccache: true
+          - runner: windows-2025
             compiler: msvc
-          - runner: windows-latest
+            ccache: false
+          - runner: windows-2025
             compiler: mingw
-          - runner: windows-latest
+            ccache: true
+          - runner: windows-2025
             compiler: clang
+            ccache: false
     timeout-minutes: 30
 
     steps:
@@ -30,9 +44,9 @@ jobs:
       # CMAKE_*_FLAGS surgery (/Zi -> /Z7, disabling PCH) to get any
       # cache hits at all under MSVC, and those two jobs already carry
       # the most fragile scripting in this file (VsDevCmd.bat + nested
-      # quoting). Not worth stacking more risk there for this pass.
+      # quoting). Not worth stacking more risk there.
       - name: Set up ccache
-        if: matrix.compiler == 'gcc' || matrix.compiler == 'mingw' || matrix.compiler == 'xcode' || (matrix.compiler == 'clang' && runner.os == 'Linux')
+        if: matrix.ccache
         uses: hendrikmuhs/ccache-action@v1.2
         with:
           key: ccache-${{ matrix.runner }}-${{ matrix.compiler }}
@@ -49,70 +63,50 @@ jobs:
       # actions/runner-images macos-15-Readme.md. brew update/install
       # here was pure overhead (brew update alone can take 30s-2min).
 
-      - name: Install system deps (Windows MSVC)
-        if: runner.os == 'Windows' && matrix.compiler == 'msvc'
+      - name: Install system deps (Windows)
+        if: runner.os == 'Windows'
         run: |
-          # NOTE: cmake and the VC++ workload are already preinstalled
-          # on windows-latest (full VS2022 Enterprise ships by default,
-          # confirmed via actions/runner-images). The old
+          # cmake and the VC++ workload are already preinstalled on
+          # every Windows runner image (confirmed via
+          # actions/runner-images) -- the old
           # visualstudio2022-workload-vctools choco install was pure
-          # dead weight -- historically minutes of the slowest part of
+          # dead weight, historically minutes of the slowest part of
           # this whole file for zero benefit. pkg-config is not
-          # preinstalled, so that one stays.
+          # preinstalled on any of these images, so it stays for all
+          # three compilers; llvm is only needed for the clang leg.
           choco install -y pkgconfiglite
-        shell: powershell
-
-      - name: Install system deps (Windows clang/LLVM)
-        if: runner.os == 'Windows' && matrix.compiler == 'clang'
-        run: |
-          # NOTE: cmake is already preinstalled on windows-latest (see
-          # the MSVC step above), so only llvm and pkg-config are
-          # installed here now.
-          choco install -y llvm
-          choco install -y pkgconfiglite
-        shell: powershell
-
-      - name: Install system deps (Windows MinGW)
-        if: runner.os == 'Windows' && matrix.compiler == 'mingw'
-        run: choco install -y pkgconfiglite
+          if ("${{ matrix.compiler }}" -eq "clang") {
+            choco install -y llvm
+          }
         shell: powershell
 
       - name: Install Qt 6.8.3 (jurplel action)
-        if: matrix.compiler != 'mingw'
         id: install_qt
         uses: jurplel/install-qt-action@v4
         with:
           version: '6.8.3'
           host: ${{ runner.os == 'macOS' && 'mac' || runner.os == 'Windows' && 'windows' || 'linux' }}
           modules: 'qtshadertools'
-          cache: true
-
-      - name: Install Qt 6.8.3 for MinGW (jurplel action)
-        if: matrix.compiler == 'mingw'
-        id: install_qt_mingw
-        uses: jurplel/install-qt-action@v4
-        with:
-          version: '6.8.3'
-          host: 'windows'
-          target: 'desktop'
-          # Pulled from the official Qt archive instead of MSYS2's
-          # pacman repo. MSYS2's mingw64 repo is a rolling release --
-          # it only ever carries the CURRENT Qt build (6.11.x as of
-          # this writing), so hardcoded pacman -U URLs for 6.8.3 404
-          # as soon as MSYS2 rolls forward, which is exactly what
-          # happened here. Qt's own archive keeps every open-source
-          # release indefinitely, so pinning a version this way holds
-          # up over time. tools_mingw1310 is the GCC 13.1.0 toolchain
-          # these Qt 6.8 win64_mingw binaries were built against --
-          # mismatching the compiler version causes ABI issues, so it
-          # has to be installed alongside rather than relying on
-          # whatever gcc happens to be on the runner. jurplel's action
-          # puts the tool's bin dir on PATH for the rest of the job,
-          # so gcc/g++ (and the MinGW runtime DLLs ctest needs later)
-          # resolve without a separate "add to PATH" step.
-          arch: 'win64_mingw'
-          tools: 'tools_mingw1310'
-          modules: 'qtshadertools'
+          # arch/tools only apply to the mingw leg; empty string is
+          # equivalent to omitting these inputs (aqtinstall picks its
+          # normal default) for every other leg.
+          #
+          # Pulled from the official Qt archive rather than MSYS2's
+          # pacman repo -- MSYS2's mingw64 repo is a rolling release,
+          # it only ever carries the CURRENT Qt build, so a pinned
+          # 6.8.3 there eventually 404s as MSYS2 rolls forward (this
+          # already happened once). Qt's own archive keeps every
+          # open-source release indefinitely.
+          #
+          # tools_mingw1310 is the GCC 13.1.0 toolchain these Qt 6.8
+          # win64_mingw binaries were built against -- mismatching the
+          # compiler version causes ABI issues, so it's installed
+          # alongside rather than relying on whatever gcc happens to
+          # be on the runner. jurplel puts its bin dir on PATH for the
+          # rest of the job, so gcc/g++ (and the MinGW runtime DLLs
+          # ctest needs later) resolve without a separate step.
+          arch: ${{ matrix.compiler == 'mingw' && 'win64_mingw' || '' }}
+          tools: ${{ matrix.compiler == 'mingw' && 'tools_mingw1310' || '' }}
           cache: true
 
       - name: Show Qt info (debug)
@@ -222,8 +216,8 @@ jobs:
         if: runner.os == 'Windows' && matrix.compiler == 'mingw'
         # Plain Git Bash (bundled on the runner) now that gcc/g++ come
         # from the Qt Tools download and are already on PATH courtesy
-        # of jurplel -- no more need to hand bash a script FILE to
-        # dodge PowerShell mangling a full MSYS2 login shell.
+        # of jurplel -- no need to hand bash a script FILE to dodge
+        # PowerShell mangling a full MSYS2 login shell.
         shell: bash
         run: |
           set -e
@@ -243,19 +237,15 @@ jobs:
       - name: Configure CMake (Windows clang)
         if: runner.os == 'Windows' && matrix.compiler == 'clang'
         env:
-          CMAKE_PREFIX_PATH: ${{ env.QTDIR || env.QT_INSTALL_DIR || 'D:\\a\\QmlMaterial\\Qt\\6.8.3\\msvc2022_64' }}
+          CMAKE_PREFIX_PATH: ${{ env.QTDIR || env.QT_INSTALL_DIR || '' }}
         run: |
           $llvmBin = 'C:\Program Files\LLVM\bin'
           if (Test-Path $llvmBin) {
             $env:PATH = "$llvmBin;$env:PATH"
           }
 
-          $qtDir = $env:QTDIR
-          if (-not $qtDir) { $qtDir = $env:QT_INSTALL_DIR }
-          if (-not $qtDir) { $qtDir = 'D:\a\QmlMaterial\Qt\6.8.3\msvc2022_64' }
-          Write-Host "Using Qt dir: $qtDir"
-
-          $qtLib = Join-Path $qtDir 'lib'
+          Write-Host "Using Qt dir: $env:CMAKE_PREFIX_PATH"
+          $qtLib = Join-Path $env:CMAKE_PREFIX_PATH 'lib'
           $env:PATH = "$qtLib;$env:PATH"
 
           New-Item -ItemType Directory -Force -Path build | Out-Null
@@ -266,7 +256,7 @@ jobs:
             '-G', 'Ninja',
             '-DCMAKE_BUILD_TYPE=Release',
             "-DCMAKE_PREFIX_PATH=$env:CMAKE_PREFIX_PATH",
-            "-DQt6ShaderTools_DIR=$qtDir\lib\cmake\Qt6ShaderTools",
+            "-DQt6ShaderTools_DIR=$env:CMAKE_PREFIX_PATH\lib\cmake\Qt6ShaderTools",
             '-DCMAKE_C_COMPILER=clang-cl',
             '-DCMAKE_CXX_COMPILER=clang-cl'
           )
@@ -300,7 +290,7 @@ jobs:
           set -e
           cmake --build build --parallel "${NUMBER_OF_PROCESSORS:-2}"
 
-      - name: Build (Windows, parallel)
+      - name: Build (Windows MSVC / clang, parallel)
         if: runner.os == 'Windows' && matrix.compiler != 'mingw'
         run: |
           # Locate vswhere

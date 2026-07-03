@@ -179,11 +179,23 @@ jobs:
 
       - name: Configure CMake (Windows MSVC)
         if: runner.os == 'Windows' && matrix.compiler == 'msvc'
-        env:
-          CMAKE_PREFIX_PATH: ${{ env.QTDIR || env.QT_INSTALL_DIR || '' }}
         run: |
           # Create build directory
           New-Item -ItemType Directory -Force -Path build | Out-Null
+
+          # NOTE: reading $env:QTDIR directly, not ${{ env.QTDIR }} --
+          # see the Windows clang step below for why the expression
+          # context never resolves this. Here it wasn't crashing (the
+          # $cmakeCmd string interpolation just silently produced
+          # -DCMAKE_PREFIX_PATH="" instead of throwing), so this was
+          # quietly relying on CMake finding Qt via Qt6_DIR alone.
+          # Fixing it for real rather than leaving that as a landmine.
+          $qtDir = $env:QTDIR
+          if (-not $qtDir) { $qtDir = $env:QT_INSTALL_DIR }
+          if (-not $qtDir) {
+            $qtDir = Join-Path (Split-Path -Parent $env:GITHUB_WORKSPACE) 'Qt\6.8.3\msvc2022_64'
+          }
+          Write-Host "Using Qt dir: $qtDir"
 
           # Locate Visual Studio installation using vswhere
           $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
@@ -207,7 +219,7 @@ jobs:
           }
 
           # Run the developer environment for x64 and then call cmake (Ninja generator).
-          $cmakeCmd = "cmake -S . -B build -G ""Ninja"" -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=`"$env:CMAKE_PREFIX_PATH`""
+          $cmakeCmd = "cmake -S . -B build -G ""Ninja"" -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=`"$qtDir`""
           Write-Host "Invoking VsDevCmd and running cmake (Ninja)..."
           cmd /c "`"$vsDevCmd`" -arch=amd64 && $cmakeCmd"
         shell: powershell
@@ -236,16 +248,32 @@ jobs:
 
       - name: Configure CMake (Windows clang)
         if: runner.os == 'Windows' && matrix.compiler == 'clang'
-        env:
-          CMAKE_PREFIX_PATH: ${{ env.QTDIR || env.QT_INSTALL_DIR || '' }}
         run: |
           $llvmBin = 'C:\Program Files\LLVM\bin'
           if (Test-Path $llvmBin) {
             $env:PATH = "$llvmBin;$env:PATH"
           }
 
-          Write-Host "Using Qt dir: $env:CMAKE_PREFIX_PATH"
-          $qtLib = Join-Path $env:CMAKE_PREFIX_PATH 'lib'
+          # NOTE: deliberately reading $env:QTDIR directly here, not
+          # ${{ env.QTDIR }}. The `env` expression context does NOT
+          # see variables set via $GITHUB_ENV by a previous step (see
+          # GitHub's own Contexts reference: "It does not contain
+          # variables inherited by the runner process") -- only real
+          # process env vars do, which is what jurplel/install-qt-action
+          # actually sets. Using ${{ env.QTDIR }} here always silently
+          # resolved to empty, which is what made Join-Path below crash.
+          $qtDir = $env:QTDIR
+          if (-not $qtDir) { $qtDir = $env:QT_INSTALL_DIR }
+          if (-not $qtDir) {
+            # Last-resort fallback: jurplel installs to
+            # <parent-of-workspace>\Qt\<version>\<arch> by convention.
+            # Should never actually be needed, but keeps a future
+            # failure here loud and specific instead of a null-argument
+            # crash.
+            $qtDir = Join-Path (Split-Path -Parent $env:GITHUB_WORKSPACE) 'Qt\6.8.3\msvc2022_64'
+          }
+          Write-Host "Using Qt dir: $qtDir"
+          $qtLib = Join-Path $qtDir 'lib'
           $env:PATH = "$qtLib;$env:PATH"
 
           New-Item -ItemType Directory -Force -Path build | Out-Null
@@ -255,8 +283,8 @@ jobs:
             '-B', 'build',
             '-G', 'Ninja',
             '-DCMAKE_BUILD_TYPE=Release',
-            "-DCMAKE_PREFIX_PATH=$env:CMAKE_PREFIX_PATH",
-            "-DQt6ShaderTools_DIR=$env:CMAKE_PREFIX_PATH\lib\cmake\Qt6ShaderTools",
+            "-DCMAKE_PREFIX_PATH=$qtDir",
+            "-DQt6ShaderTools_DIR=$qtDir\lib\cmake\Qt6ShaderTools",
             '-DCMAKE_C_COMPILER=clang-cl',
             '-DCMAKE_CXX_COMPILER=clang-cl'
           )

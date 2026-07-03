@@ -157,9 +157,11 @@ jobs:
 
           # Read $env:QTDIR directly: ${{ env.QTDIR }} can't see vars a
           # prior step exported via $GITHUB_ENV (GH env-context rule).
+          # No fabricated fallback: an empty value means the Qt install
+          # step failed, and we want a loud error, not a guessed path.
           $qtDir = $env:QTDIR
           if (-not $qtDir) { $qtDir = $env:QT_INSTALL_DIR }
-          if (-not $qtDir) { $qtDir = Join-Path (Split-Path -Parent $env:GITHUB_WORKSPACE) 'Qt\6.8.3\msvc2022_64' }
+          if (-not $qtDir) { Write-Error "QTDIR/QT_INSTALL_DIR not set — Qt install step likely failed."; exit 1 }
           Write-Host "Using Qt dir: $qtDir"
 
           $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
@@ -202,9 +204,11 @@ jobs:
 
           # Read $env:QTDIR directly: ${{ env.QTDIR }} can't see vars a
           # prior step exported via $GITHUB_ENV (GH env-context rule).
+          # No fabricated fallback: an empty value means the Qt install
+          # step failed, and we want a loud error, not a guessed path.
           $qtDir = $env:QTDIR
           if (-not $qtDir) { $qtDir = $env:QT_INSTALL_DIR }
-          if (-not $qtDir) { $qtDir = Join-Path (Split-Path -Parent $env:GITHUB_WORKSPACE) 'Qt\6.8.3\msvc2022_64' }
+          if (-not $qtDir) { Write-Error "QTDIR/QT_INSTALL_DIR not set — Qt install step likely failed."; exit 1 }
           Write-Host "Using Qt dir: $qtDir"
           $env:PATH = "$(Join-Path $qtDir 'lib');$env:PATH"
 
